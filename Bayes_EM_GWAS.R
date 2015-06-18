@@ -2,9 +2,9 @@
 args <- commandArgs(trailingOnly=T)
 GOmatfile <- args[1]
 BayesFactorFile <- args[2]
-Startterm <- args[3]
-Numterms <- args[4]
-EMiter <- args[5]
+Startterm <- as.integer(args[3])
+Numterms <- as.integer(args[4])
+EMiter <- as.integer(args[5])
 Outdir <- args[6]
 
 outfile <- file.path(Outdir,paste0("FGEM_DF_",Startterm,"_",Startterm+Numterms,".RDS"))
