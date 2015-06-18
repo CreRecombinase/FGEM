@@ -29,7 +29,7 @@ for( my $item = $startfeat; $item<$lastfeat; $item+=$featsize){
 	print SCRIPT "#\$ -o ${shellout}\n";
 	print SCRIPT "#\$ -e ${shellerr}\n";
 	print SCRIPT "#\$ -l h_vmem=1g\n";
-	print SCRIPT "/mnt/gluster/home/nwknoblauch/bin/Rscript /mnt/gluster/home/nwknoblauch/Gene_Annotation/FGEM/Bayes_EM_GWAS.R /mnt/gluster/home/nwknoblauch/Gene_Annotation/GOmat.RDS /mnt/gluster/home/nwknoblauch/Gene_Annotation/TADA_ASC_SSC_results_Dec23.csv ${item} ${featsize} /mnt/gluster/home/nwknoblauch/Gene_Annotation/ \n";
+	print SCRIPT "/mnt/gluster/home/nwknoblauch/bin/Rscript /mnt/gluster/home/nwknoblauch/Gene_Annotation/FGEM/Bayes_EM_GWAS.R /mnt/gluster/home/nwknoblauch/Gene_Annotation/GOmat.RDS /mnt/gluster/home/nwknoblauch/Gene_Annotation/TADA_ASC_SSC_results_Dec23.csv ${item} ${featsize} 50 /mnt/gluster/home/nwknoblauch/Gene_Annotation/ \n";
 	close(SCRIPT);
 	system("qsub ${shellfile}");
 	print "${item}\n";
