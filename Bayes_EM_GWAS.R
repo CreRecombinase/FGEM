@@ -1,67 +1,155 @@
-library(topGO)
-library(reshape2)
-library(Matrix)
-
+#Read from the command line to get which iteration to use
 args <- commandArgs(trailingOnly=T)
 GOmatfile <- args[1]
-BFile <- args[2]
-Startterm <- as.integer(args[3])
-Numterms <- as.integer(args[4])
-Outdir <- args[5]
+BayesFactorFile <- args[2]
+Startterm <- args[3]
+Numterms <- args[4]
+EMiter <- args[5]
+Outdir <- args[6]
 
-Pi <- function(x)Reduce("*",x)
+outfile <- file.path(Outdir,paste0("FGEM_DF_",Startterm,"_",Startterm+Numterms,".RDS"))
 GOmat <- readRDS(GOmatfile)
-BF.G <- read.table(BFile,header=T,sep=",")
-BF.G$sig <- ifelse(BF.G$BF>10,1,0)
-Z <- BF.G$sig
+BF.df <- read.table(BayesFactorFile,header=T,sep=",")
 
-allgenes <- data.frame(Gene=BF.G$Gene,Z,B=BF.G$BF,stringsAsFactors=F)
+#To start the EM algorithm, we need a starting guess for Beta. To do this we will use 
+#logistic regression on thresholded Bayes Factors (Bayes Factor>3) 
+
+allgenes <- data.frame(Gene=BF.df$Gene,Z,B=BF.df$BF,stringsAsFactors=F)
 rownames(allgenes) <- allgenes$Gene
-allgenes$Gi <- as.integer(factor(allgenes$Gene))
 
+#Pull the relevant rows from the dataframe
 
-
-
-Z <- allgenes[rownames(GOmat),"Z"]
 B <- allgenes[rownames(GOmat),"B"]
 
 
 ####Starting EM
+#Computing the null model
+likfun <- function(x,B){
+  sum(log((1/(1+exp(-x)))*B+(1-(1/(1+exp(-x))))))
+}
+NullLogLikelihood <- optimize(likfun,interval = c(-10,10),B=B,maximum=T)[["objective"]]
 
-Betadf <- data.frame(Intercept=numeric(0),Beta=numeric(0),GO=character(0),liknull=numeric(0),likalt=numeric(0),stringsAsFactors=F)
-
-for(j in Startterm:(Startterm+Numterms)){
-  print(j)
-  x <- as.matrix(GOmat[,j,drop=F])
-  xm <- cbind(rep(1,length(Z)),GOmat[,j])
-  colnames(xm) <- c("Intercept",colnames(GOmat)[j])
-  Bofit <- glm(Z~x,family=binomial())
-  Beta <- coefficients(Bofit)
-  for(i in 1:40){
-    if(i%%10==0){
-      print(i)
-    }
-    pvec <- 1/(1+exp(-(xm%*%Beta)))
-    uvec <- (pvec*B)/((pvec*B)+(1-pvec))
-    Beta <- coefficients(glm(uvec~xm-1,family=quasibinomial(link="logit")))
-  }
-  nullBeta <- c(Beta[1],0)
-  altpvec <- 1/(1+exp(-(xm%*%Beta)))
-  altlikvec <- altpvec*B+(1-altpvec)
-  likalt <- Pi(altlikvec)
-  nullpvec <-  1/(1+exp(-(xm%*%nullBeta)))
-  nulllvec <- nullpvec*B+(1-nullpvec)
-  liknull <- Pi(nulllvec)
-  Betadf[j,c("Intercept","Beta")]=Beta
-  Betadf[j,"GO"] <- colnames(GOmat)[j]
-  Betadf[j,"liknull"] <- liknull
-  Betadf[j,"likalt"]<- likalt
+#If the number of terms to be tested is greater than the number of remaining terms
+# we change the number of terms to be tested
+if(Startterm+Numterms>ncol(GOmat)){
+  Numterms <- ncol(GOmat)-Startterm
 }
 
-Betadf$chisq<- -2*log(Betadf$liknull/Betadf$likalt)
+#Subset the GO matrix to only the terms we're going to test
+GOmat <- GOmat[,Startterm:(Startterm+Numterms)]
 
-Betadf$p <- dchisq(Betadf$chisq,df = 1)
 
+#Function that performs EM
+FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
+  #x is a vector of length I with relevant annotations
+  #B is a vector of length I with Bayes Factors
+  #Z is a vector of length I with the initial guess for membership (1's or 0's)
+  ## Z can be NULL, in which case Z will be randomly sampled from a binomial with probabilities according to the Bayes Factor.
+  
+  #iters is the number of EM iterations.  If not specified, EM will be run untill convergence specified by tol.
+  
+  if(is.null(NullLogLikelihood)){
+    likfun <- function(x,B){
+      sum(log((1/(1+exp(-x)))*B+(1-(1/(1+exp(-x))))))
+    }
+    NullLogLikelihood  <- optimize(likfun,interval = c(-10,10),B=B,maximum=T)$objective
+  }
+  
+  if(is.null(tol)&is.null(iters)){
+    stop("Must specify tol or iters")
+  }
+  if(ifelse(is.null(Z),
+            length(x)!=length(B),
+            (length(x)!=length(B))|(length(x)!=length(Z))|(length(B)!=length(Z)))){
+    stop("Length of x and B (and Z, if specified) must be equal")
+  }
+  
+  if(is.null(Z)){
+    pB <- ecdf(B)(B)
+    sigcount <- sum(pB)/sum(B>10)
+    Z <- rbinom(length(B),size = 1,prob = pB/sigcount)
+  }
+  if(!is.null(iters)&is.null(tol)){
+    tol <- 0
+  }
+  if(!is.null(tol)&is.null(iters)){
+    iters <- 1000
+  }
+  if(keep){
+    matdim <- iters
+    Beta <- matrix(0,2,matdim)
+    Beta[,1] <- coefficients(glm(Z~x,family=binomial))
+    pvec <- 1/(1+exp(-(Beta[1,1]+Beta[2,1]*x)))
+    LogLikelihood <- numeric(matdim)
+    LogLikelihood[1] <- sum(log(pvec*B+(1-pvec)))
+    i <- 1
+    while ((i < iters)&(i<1000)){
+     #This is the mixture proportion
+      uvec  <- (pvec*B)/((pvec*B)+(1-pvec))
+      #This is where we optimize the Q function (in this case, using logistic regression)
+      Beta[,i] <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+      pvec  <- 1/(1+exp(-(Beta[1,i]+Beta[2,i]*x)))
+      #If the difference between the current log likelihood and the previous log likelihood is below the tolerance, we quit
+      rettol <- sum(log(pvec*B+(1-pvec)))-LogLikelihood[i]
+      if(rettol<tol){
+        LogLikelihood[i] <- sum(log(pvec*B+(1-pvec)))
+        break
+      }
+      LogLikelihood[i] <- sum(log(pvec*B+(1-pvec)))
+      #If we're about to stop and we still aren't better than the null model, we keep going (up to 1k iterations)
+      if(i==(iters-1)){
+        if(LogLikelihood[i]<NullLogLikelihood){
+          iters <- iters+10
+        }
+      }
+      i <- i+1
+    }
+    Chisq <- -2*(NullLogLikelihood-LogLikelihood[matdim])
+    retlist <- list(Intercept=Beta[1,matdim],Beta=Beta[2,matdim],
+                    LogLikelihood=LogLikelihood[matdim],
+                    NullLogLikelihood=NullLogLikelihood,
+                    Chisq=Chisq,tol=rettol)
+  }
+  else{
+    Beta <- coefficients(glm(Z~x,family=binomial))
+    pvec <- 1/(1+exp(-(Beta[1]+Beta[2]*x)))
+    LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+    i <- 1
+    while ((i < iters)&(i<1000)){
+      #This is the mixture proportion
+      uvec  <- (pvec*B)/((pvec*B)+(1-pvec))
+      #This is where we optimize the Q function (in this case, using logistic regression)
+      Beta <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+      pvec  <- 1/(1+exp(-(Beta[1]+Beta[2]*x)))
+      #If the difference between the current log likelihood and the previous log likelihood is below the tolerance, we quit
+      rettol <- sum(log(pvec*B+(1-pvec)))-LogLikelihood
+      if(rettol<tol){
+        LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+        break
+      }
+      LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+      #If we're about to stop and we still aren't better than the null model, we keep going (up to 1k iterations)
+      if(i==(iters-1)&LogLikelihood<NullLogLikelihood){
+        iters <- iters+10
+      }
+      i <- i+1
+    }
+    Chisq <- -2*(NullLogLikelihood-LogLikelihood)
+    retlist <- list(Intercept=Beta[1],Beta=Beta[2],
+                    LogLikelihood=LogLikelihood,
+                    NullLogLikelihood=NullLogLikelihood,
+                    Chisq=Chisq,tol=rettol)
+  } 
+  if(keep){
+    mats <- list(Betas=Beta,LogLikelihood=LogLikelihood)
+    return(list(retlist,mats))
+  }else{
+    return(retlist)
+  }
+}
 print("Done!")
-outfile <- file.path(Outdir,paste0(Startterm,"_",Startterm+Numterms,"BDF.RDS"))
-saveRDS(Betadf,outfile)
+FGEM.df <- ldply(apply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood),data.frame)
+saveRDS(FGEM.df,outfile)
+
+
+
