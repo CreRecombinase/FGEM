@@ -1,7 +1,17 @@
 library(methods)
 library(Matrix)
 library(plyr)
-                                        #Read from the command line to get which iteration to use
+# #nodes <- detectCores()
+# 
+# registerDoMC(nodes)
+                                        
+# GOmatfile <- GOmatfile
+# BayesFactorFile <- Bayes
+# Starterm <- 1001
+# Numterms <- 100
+# EMiter <- 50
+# Outdir <- "~/temp"
+#Read from the command line to get which iteration to use
 args <- commandArgs(trailingOnly=T)
 GOmatfile <- args[1]
 BayesFactorFile <- args[2]
@@ -152,11 +162,11 @@ FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
     mats <- list(Betas=Beta,LogLikelihood=LogLikelihood)
     return(list(retlist,mats))
   }else{
-    return(retlist)
+    return(data.frame(retlist))
   }
 }
 
-FGEM.df <- ldply(apply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood),data.frame)
+FGEM.df <- adply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood,.parallel=F)
 print("Done!")
 saveRDS(FGEM.df,outfile)
 
