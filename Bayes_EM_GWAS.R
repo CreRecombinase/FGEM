@@ -54,7 +54,10 @@ if(Startterm+Numterms>ncol(GOmat)){
 }
 
 #Subset the GO matrix to only the terms we're going to test
+print("Subsetting GO matrix")
 GOmat <- GOmat[,Startterm:(Startterm+Numterms)]
+print("GO matrix is now of size ")
+print(dim(GOmat))
 
 
 #Function that performs EM
@@ -165,6 +168,7 @@ FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
     return(data.frame(retlist))
   }
 }
+
 
 FGEM.df <- adply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood,.parallel=F)
 print("Done!")
