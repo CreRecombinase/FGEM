@@ -1,4 +1,7 @@
-#Read from the command line to get which iteration to use
+library(methods)
+library(Matrix)
+library(plyr)
+                                        #Read from the command line to get which iteration to use
 args <- commandArgs(trailingOnly=T)
 GOmatfile <- args[1]
 BayesFactorFile <- args[2]
@@ -8,14 +11,19 @@ EMiter <- as.integer(args[5])
 Outdir <- args[6]
 
 outfile <- file.path(Outdir,paste0("FGEM_DF_",Startterm,"_",Startterm+Numterms,".RDS"))
+if(!all(file.exists(c(GOmatfile,BayesFactorFile)))){
+    stop(paste0("File not found: ",c(GOmatfile,BayesFactorFile)[!file.exists(c(GOmatfile,BayesFactorFile))]))
+}
 GOmat <- readRDS(GOmatfile)
 BF.df <- read.table(BayesFactorFile,header=T,sep=",")
+
 
 #To start the EM algorithm, we need a starting guess for Beta. To do this we will use 
 #logistic regression on thresholded Bayes Factors (Bayes Factor>3) 
 
-allgenes <- data.frame(Gene=BF.df$Gene,Z,B=BF.df$BF,stringsAsFactors=F)
+allgenes <- data.frame(Gene=BF.df$Gene,B=BF.df$BF,stringsAsFactors=F)
 rownames(allgenes) <- allgenes$Gene
+allgenes <- allgenes[rownames(GOmat),]
 
 #Pull the relevant rows from the dataframe
 
@@ -147,8 +155,9 @@ FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
     return(retlist)
   }
 }
-print("Done!")
+
 FGEM.df <- ldply(apply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood),data.frame)
+print("Done!")
 saveRDS(FGEM.df,outfile)
 
 
