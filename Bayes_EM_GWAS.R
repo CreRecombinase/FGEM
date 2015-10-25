@@ -1,16 +1,18 @@
 library(methods)
 library(Matrix)
 library(plyr)
-# #nodes <- detectCores()
+library(doMC)
+nodes <- detectCores()
 # 
-# registerDoMC(nodes)
+registerDoMC(nodes)
                                         
-# GOmatfile <- GOmatfile
-# BayesFactorFile <- Bayes
-# Starterm <- 1001
-# Numterms <- 100
-# EMiter <- 50
-# Outdir <- "~/temp"
+GOmatfile <- "BrainSpanVar.RDS"
+BayesFactorFile <- BayesFactorFile
+Startterm <- 1
+Numterms <- 15
+EMiter <- 50
+featureClassName <- "BrainExpressionVar"
+Outdir <- "./"
 #Read from the command line to get which iteration to use
 args <- commandArgs(trailingOnly=T)
 GOmatfile <- args[1]
@@ -20,7 +22,7 @@ Numterms <- as.integer(args[4])
 EMiter <- as.integer(args[5])
 Outdir <- args[6]
 
-outfile <- file.path(Outdir,paste0("FGEM_DF_",Startterm,"_",Startterm+Numterms,".RDS"))
+outfile <- file.path(Outdir,paste0("FGEM_DF_",featureClassName,"_",Startterm,"_",Startterm+Numterms,".RDS"))
 if(!all(file.exists(c(GOmatfile,BayesFactorFile)))){
     stop(paste0("File not found: ",c(GOmatfile,BayesFactorFile)[!file.exists(c(GOmatfile,BayesFactorFile))]))
 }
@@ -170,7 +172,10 @@ FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
 }
 
 
-FGEM.df <- adply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood,.parallel=F)
+FGEM.df <- adply(GOmat,2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood,.parallel=T)
+FGEM.df$pval <- pchisq(FGEM.df$Chisq,df = 1,lower.tail = F)
+FGEM.df <- FGEM.df[order(FGEM.df$pval),]
+FGEM.df$adjp <- p.adjust(FGEM.df$pval,method = "fdr")
 print("Done!")
 saveRDS(FGEM.df,outfile)
 

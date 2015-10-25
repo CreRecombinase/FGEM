@@ -1,27 +1,40 @@
 ---
-title: "Gene Set Mixture Model"
+title: "Statistical Gene Mapping Using Gene Annotation and Expectation Maximization"
 author: "Nicholas Knoblauch"
-date: "June 12, 2015"
+date: "October 7, 2015"
 output: html_document
 ---
 
 
 ###Introduction
 
-  GWAS, in the most simple context, seeks to identify loci significantly associated with a trait of interest.  In the majority of GWAS, variants are weighted equally, that is to say, the prior probability that a particular variant contributes to the trait of interest is uniform.  Given that the number of loci in the human genome that are known to very is in the millions, while the number of loci that contribute to a given trait is much smaller, there is an extremely high threshold for significance.
+  GWAS, in the most simple context, seeks to identify loci significantly associated with a trait of interest.  In the majority of GWAS, variants are weighted equally, that is to say, the prior probability that a particular variant contributes to the trait of interest is uniform.  Given that the number of loci in the human genome that are known to very is in the millions, and the number of loci that contribute to a given trait is much smaller, there is an extremely high threshold for significance, due to the multiple-testing problem.  
+  The functional characterization of elements of the genome is another avenue by which we can understand the biological basis of complex traits.
   
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+  Instead of blindly testing all observed variants in isolation with their association with a trait of interest, it would be desirable to prioritize variants based on their functional relevance to the trait of interest.  Furthermore, it would be desirable in the context of coding regions to summarize the contribution of variants within a gene, rather than treating each individually.
+  
+###Method
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+####Data
+  For each of the $I$ genes being tested $B_i$ is the gene-level Bayes Factor from an association study for the trait of interest. For each of the $I$ genes being tested we also have $J$ functional annotations.  These annotations can be a mix of almost any type of data.  They could be binary data (e.g presence of absence of a particular GO term), count data (e.g number of exons), or continuous data (e.g level of conservation across mammals).  These annotations make up the matrix $A$, which is $IxJ$.  
+  
+####Model
+  For each gene, $Z_i=1$ indicates that gene $i$ is involved in the trait of interest, and $Z_i=0$ indicates that is not.  If we knew $Z_i$ we could use logistic regression to learn the importance of each annotation in the trait of interest:
+  $$logit(P(Z_i=1))=A_i\beta$$
 
-```{r}
-summary(cars)
-```
+However, we do not know $Z_i$.  We can instead use Empirical Bayes.  If we rewrite our bayes factor as the probability of observing the genotype data given the gene is causal divided by the probability of observing the genotype data given that the gene is not causal, then we can write the following likelihood function.
 
-You can also embed plots, for example:
+$$ P(x|\beta)=\prod_iP(x_i|\beta)=\prod_i [\pi_i(\beta)P(x_i|Z_i=1)+(1-\pi_i(\beta))P(x_i|Z_i=0)]$$
 
-```{r, echo=FALSE}
-plot(cars)
-```
+Remembering the definition of the Bayes factor from, this is equivalent to 
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+$$P(x|\beta) \propto \prod_i[\pi_i(\beta)B_i+(1-\pi_i(\beta))]$$
+And we can use maximum likelihood here to make estimates for $\beta$
+
+Using Bayes rule, the posterior is 
+$$P(Z_i=1|x)=\frac{P(x|Z_i=1)P(Z_i=1)}{P(x)}=\frac{\pi_i(\beta)B_i}{\pi_i(\beta)B_i+(1-\pi_i(\beta))}$$
+
+###Code
+
+We will use Expectation Maximization to estimate $\beta$ (I will denote the current estimate of $\beta$ as $\beta^{(t)}$) and the membership probabilities(i.e $P(Z_i=1|x,\beta^{(t)})$).  The first step is simply to set up our matrix of annotations.  For this example We will use the Biological Process (BP) and Molecular Function (MF) GO terms.
+
