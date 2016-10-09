@@ -2,13 +2,18 @@
 library(FGEM)
 library(dplyr)
 library(BBmisc)
-chunki <- 1
-chunki <- as.integer(commandArgs(trailingOnly = F))
-sub_all_anno_df<- readRDS("~/Dropbox/BayesianDA/FGEM_Data/sub_annotations.RDS")
-datadf <- readRDS("~/Dropbox/BayesianDA/FGEM_Data/TADA.RDS")
+library(methods)
+#chunki <- 1
+chunki <- as.integer(commandArgs(trailingOnly = T))
+cat(chunki,"\n")
+sub_all_anno_df<- readRDS("/scratch/midway/nwknoblauch/FGEM/sub_annotations.RDS")
+datadf <- readRDS("/scratch/midway/nwknoblauch/FGEM/TADA.RDS")
 
 featureinds <- unique(sub_all_anno_df$feat_ind)
-mchunk <- chunk(featureinds,chunk.size = 1)
+cat("There are ",length(featureinds),"features\n")
+
+mchunk <- chunk(featureinds,chunk.size = 100)
+cat("There are ",length(mchunk)," chunks of size 20\n")
 mchunk <- mchunk[[chunki]]
 miniter <- min(mchunk)
 maxiter <- max(mchunk)

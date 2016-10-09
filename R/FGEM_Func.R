@@ -179,10 +179,11 @@ pmean <-function(Beta,feat_mat){
 
 
 sem_df <-function(full_feat){
+    require(dplyr)
+    require(SQUAREM)
+    require(tidyr)
   cat(length(unique(full_feat$feature)))
   stopifnot(length(unique(full_feat$feature))==1)
-  otdat <- data_frame(value=tdat,Gene=names(tdat))
-  anti_join(full_feat,otdat)
   feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value) %>% select(-Gene)
   BF <-feat_mat$BF
   tmu <-BF/(BF+exp(-BF))
