@@ -198,10 +198,6 @@ pmean <-function(Beta,feat_mat,isIntercept=F){
 }
 
 
-
-
-
-
 pem_df <-function(full_feat){
   cat(length(unique(full_feat$feature)))
   stopifnot(length(unique(full_feat$feature))!=1)
@@ -247,6 +243,9 @@ Null_Intercept <-function(full_feat){
 
 
 sem_df <-function(full_feat,NullIntercept=NULL){
+  require(dplyr)
+  require(SQUAREM)
+  require(tidyr)
   cat(length(unique(full_feat$feature)))
   stopifnot(length(unique(full_feat$feature))==1)
   feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value) %>% select(-Gene)
