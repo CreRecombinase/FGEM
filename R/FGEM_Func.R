@@ -60,6 +60,33 @@ B_Logit_FGEM <- function(Beta,x,B,isIntercept=F){
   return(Beta)
 }
 
+
+
+n_Beta_FGEM <- function(Beta,x,B,isIntercept=F){
+  # if(!isIntercept){
+  #   mx <- cbind(1,x)
+  # }else{
+  #   mx <- cbind(x)
+  # }
+  # pvec  <- 1/(1+exp(-(mx%*%Beta)))
+  # uvec <- (pvec*B)/((pvec*B)+(1-pvec))
+  if(!isIntercept){
+    np <- optim(par = Beta,fn = B_Logit_log_lik,x=x,B=B,isIntercept=F)
+    Beta <- np$par
+  }else{
+    np <- optimise(B_Logit_log_lik,interval = c(-20,20),x=rep(1,length(x)),B=B,isIntercept=T)
+    Beta <- np$minimum
+  }
+  Beta <- np$par
+
+  # if(!isIntercept){
+  #   Beta <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+  # }else{
+  #   Beta <- coefficients(glm(uvec~x+0,family=quasibinomial(link="logit")))
+  # }
+  # return(Beta)
+}
+
 B_Logit_log_lik <- function(Beta,x,B,isIntercept=F){
   if(!isIntercept){
     mx <- cbind(1,x)
@@ -69,9 +96,20 @@ B_Logit_log_lik <- function(Beta,x,B,isIntercept=F){
   pvec  <- 1/(1+exp(-(mx%*%Beta)))
   # opvec  <- 1/(1+exp((mx%*%Beta)))
   uvec <- (pvec*B)/((pvec*B)+(1-pvec))
-  return(-sum(uvec*(log(pvec)+log(B))+(1-uvec)*log(1-pvec)))
+  return(-sum(uvec*(log(pvec*B))+(1-uvec)*log(1-pvec)))
 }
 
+Flog_lik <- function(Beta,x,B,isIntercept=F){
+  if(!isIntercept){
+    mx <- cbind(1,x)
+  }else{
+    mx <- cbind(x)
+  }
+  pvec  <- 1/(1+exp(-(mx%*%Beta)))
+  uvec <- (pvec*B)/((pvec*B)+(1-pvec))
+  tmod <- glm(uvec~x,family=quasibinomial(link="logit"))
+  return(sum(log(pvec*B+(1-pvec))))
+}
 
 
 Logit_log_lik <- function(u,x,B){
@@ -82,6 +120,7 @@ Logit_log_lik <- function(u,x,B){
   uvec <- (pvec*B)/((pvec*B)+(1-pvec))
   return(-sum(uvec*log(pvec+B)+(1-uvec)*log(1-pvec)))
 }
+
 
 #
 # Beta_log_lik <- function(Beta,x,B,isIntercept=F){
@@ -95,11 +134,14 @@ Logit_log_lik <- function(u,x,B){
 #   return(-sum(uvec*log(pvec+B)+(1-uvec)*log(1-pvec)))
 # }
 
-gen_p <- function(u,x,B){
+gen_p <- function(Beta,x){
   mx <- cbind(1,x)
   pvec  <- 1/(1+exp(-(mx%*%Beta)))
-  Beta <- coefficients(glm(u~x,family=quasibinomial(link="logit")))
-  return(Beta)
+  return(pvec)
+}
+gen_u <- function(Beta,x,B){
+  p <- gen_p(Beta,x)
+  return((p*B)/((p*B)+(1-p)))
 }
 
 Bayesfile <- function(BayesFactorFile){
@@ -155,15 +197,15 @@ glist2df <- function(Genes,feat.name){
 }
 
 GO2df <-function(Genes,terms="BP"){
-  require(topGO)
-  require(org.Hs.eg.db)
-  require(dplyr)
   require(reshape2)
-  mdf <- melt(annFUN.org(terms,feasibleGenes=Genes,mapping="org.Hs.eg.db",ID="symbol"))
+  require(topGO)
+  require(dplyr)
+  mdf <- melt(topGO::annFUN.org(terms,feasibleGenes=Genes,mapping="org.Hs.eg.db",ID="symbol"))
   mdf <- as_data_frame(mdf)
   mdf <- dplyr::select(mdf,gene=value,feature=L1) %>% mutate(value=1,class=paste0("GO_",terms))
   return(mdf)
 }
+
 
 
 cfeat_df <- function(annodf,datadf,impute=F){
@@ -232,8 +274,9 @@ Null_Intercept <-function(full_feat){
   tmu <-BF/(BF+exp(-BF))
   feat_mat <- data.matrix(select(feat_mat,-BF))
   fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
-  opf <- squarem(par=fBeta,fixptfn=B_Logit_FGEM,
+  opf <- squarem(par=fBeta,fixptfn=n_Beta_FGEM,
                  objfn=B_Logit_log_lik,x=feat_mat,B=BF,isIntercept=T)
+
   pBeta <- opf$par
   opf$par <- NULL
   cn <- c(colnames(feat_mat))
@@ -245,40 +288,47 @@ Null_Intercept <-function(full_feat){
 }
 
 
+
+
 sem_df <-function(full_feat,NullIntercept=NULL){
   require(dplyr)
   require(SQUAREM)
   require(tidyr)
+
+
   cat(length(unique(full_feat$feature)))
   stopifnot(length(unique(full_feat$feature))==1)
   feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value) %>% select(-Gene)
   BF <-feat_mat$BF
-  tmu <-BF/(BF+exp(-BF))
+  tmu <-BF/(BF+exp(-(-4+0.1*BF)))
   feat_mat <- data.matrix(select(feat_mat,-BF))
   fBeta <- coefficients(glm(tmu~feat_mat,family=quasibinomial(link="logit")))
-  opf <- squarem(par=fBeta,fixptfn=B_Logit_FGEM,
+
+  opf <- squarem(par=fBeta,fixptfn=n_Beta_FGEM,
                  objfn=B_Logit_log_lik,x=feat_mat,B=BF)
-
-
-
+#  nopf <- squarem(par=fBeta,fixptfn=B_Logit_FGEM,objfn=B_Logit_log_lik,x=feat_mat,B=BF)
+  #  nopf <- squarem(par=fBeta,fixptfn=B_Logit_FGEM,x=feat_mat,B=BF)
   pBeta <- opf$par
   opf$par <- NULL
   cn <- c(colnames(feat_mat))
   nret <- data.frame(opf) %>% mutate(feature=cn,value.objfn=-value.objfn,Beta=pBeta[2],Intercept=pBeta[1]) %>%
     rename(LogLik=value.objfn)
-  if(is.null(NullIntercept)){
-    NullIntercept_df <-Null_Intercept(full_feat)
-    NullIntercept <- NullIntercept_df$Intercept
-  }
-  nNullLogLik <- -B_Logit_log_lik(c(NullIntercept,0),feat_mat,BF)
+  mus <-
+
+    if(is.null(NullIntercept)){
+      NullIntercept_df <-Null_Intercept(full_feat)
+      NullIntercept <- NullIntercept_df$Intercept
+    }
+  nNullLogLik <- B_Logit_log_lik(c(NullIntercept,0),feat_mat,BF)
+  nLogLik <- B_Logit_log_lik(pBeta,feat_mat,BF)
   prior_mean <- pmean(pBeta,feat_mat)
-  nret <- mutate(nret,NullLogLik=nNullLogLik,Chisq=2*(NullLogLik-LogLik),
+  nret <- mutate(nret,NullLogLik=nNullLogLik,LogLik=nLogLik,Chisq=2*(NullLogLik-LogLik),
                  pval=pchisq(Chisq,df=1,lower.tail = F),prior_mean=prior_mean)
   return(nret)
 }
 
-#
-# filter(full_feat) %>% ggplot(aes(x=log(BF),y=value))+geom_point()
+
+
 
 fisher_comp <- function(full_feat,prior=0.02){
 
