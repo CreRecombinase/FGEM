@@ -48,3 +48,4 @@ results <- group_by(s_anno_df,feature) %>%  do(cfeat_df(.,datadf,impute=F)) %>% 
 saveRDS(results,paste0("/scratch/midway/nwknoblauch/FGEM/FGEM_Results/rem_FGEM_",miniter,"_",maxiter,".RDS"))
 
 
+
