@@ -47,15 +47,7 @@ glist2df <- function(Genes,feat.name){
   return(retdf)
 }
 
-GO2df <-function(Genes,terms="BP"){
-  require(reshape2)
-  require(topGO)
-  require(dplyr)
-  mdf <- melt(topGO::annFUN.org(terms,feasibleGenes=Genes,mapping="org.Hs.eg.db",ID="symbol"))
-  mdf <- as_data_frame(mdf)
-  mdf <- dplyr::select(mdf,Gene=value,feature=L1) %>% mutate(value=1,class=paste0("GO_",terms))
-  return(mdf)
-}
+
 
 
 cfeat_mat <- function(annodf,datadf){
@@ -171,7 +163,7 @@ sem_df <-function(full_feat,scale=F,prior_mean=0.02){
     feat_mat <- feat_mat[,!is.na(fBeta)[-1]]
     fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
   }
-  retdf <- FGEM(fbeta = fBeta,feat_mat=feat_mat,BF=BF)
+  retdf <- FGEM(fBeta = fBeta,feat_mat=feat_mat,BF=BF)
 
   return(retdf)
 }
