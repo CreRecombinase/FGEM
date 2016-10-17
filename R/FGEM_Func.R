@@ -1,3 +1,6 @@
+
+
+
 FGEM_Logit <- function(Beta,x,B){
   pvec  <- 1/(1+exp(-(x%*%Beta)))
   uvec <- (pvec*B)/((pvec*B)+(1-pvec))
@@ -9,7 +12,7 @@ FGEM_Logit_log_lik <- function(Beta,x,B){
   pvec  <- 1/(1+exp(-(x%*%Beta)))
   # opvec  <- 1/(1+exp((mx%*%Beta)))
   uvec <- (pvec*B)/((pvec*B)+(1-pvec))
-  return(-sum(uvec*(log(pvec+B))+(1-uvec)*log(1-pvec)))
+  return(-sum(uvec*(log(pvec)+log(B))+(1-uvec)*log(1-pvec)))
 }
 
 
@@ -27,7 +30,7 @@ anno2df <- function(annodf,feat.name="ExAC"){
   require(dplyr)
   require(tidyr)
   stopifnot(any(colnames(annodf)=="Gene"))
-  retdf <- gather(annodf,feature,value,-Gene) %>% mutate(class=feat.name)
+  retdf <- gather(annodf,feature,value,-Gene)  %>% mutate(class=feat.name)
 }
 
 exp2df<- function(expmat,feat.name="Expression"){
@@ -137,9 +140,18 @@ anno2mat <- function(full_feat){
   return(feat_mat)
 }
 
+FGEM <-function(fBeta,feat_mat,BF){
+  retdf <- EM_mat(fBeta,feat_mat,BF) %>% mutate(nac=NA)
+  retdf <- EM_mat(fBeta[1],feat_mat[,"Intercept",drop=F],BF = BF) %>%
+    select(NullLogLik=LogLik) %>% mutate(nac=NA) %>%
+    inner_join(retdf) %>% select(-nac)
+  retdf <- mutate(retdf,Chisq=-2*(NullLogLik-LogLik),
+                  pval=pchisq(Chisq,df=ncol(feat_mat)-1,lower.tail=F))
+  return(retdf)
+}
+
 sem_df <-function(full_feat,scale=F,prior_mean=0.02){
   require(dplyr)
-
   require(tidyr)
 
   feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value)  %>% filter(complete.cases(.))
@@ -159,14 +171,8 @@ sem_df <-function(full_feat,scale=F,prior_mean=0.02){
     feat_mat <- feat_mat[,!is.na(fBeta)[-1]]
     fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
   }
+  retdf <- FGEM(fbeta = fBeta,feat_mat=feat_mat,BF=BF)
 
-
-  retdf <- EM_mat(fBeta,feat_mat,BF) %>% mutate(nac=NA)
-  retdf <- EM_mat(fBeta[1],feat_mat[,"Intercept",drop=F],BF = BF) %>%
-    select(NullLogLik=LogLik) %>% mutate(nac=NA) %>%
-    inner_join(retdf) %>% select(-nac)
-  retdf <- mutate(retdf,Chisq=-2*(NullLogLik-LogLik),
-                  pval=pchisq(Chisq,df=ncol(feat_mat)-1,lower.tail=F))
   return(retdf)
 }
 
