@@ -14,6 +14,9 @@ test_that("FGEM estimation machinery works with uninformative BF and a single (c
 })
 
 
+
+
+
 test_that("FGEM estimation machinery works with uninformative BF and two (binary, continuous, or constant) annotations",{
   expect_equivalent(FGEM_Logit(Beta=c(-2,1),
                                x=cbind(rep(c(1),6),rep(c(0,1),3)),
@@ -28,6 +31,9 @@ test_that("FGEM estimation machinery works with uninformative BF and two (binary
                                x=cbind(rep(c(0,1),50),runif(100)),
                                B=rep(1,100)),c(-2,1))
 })
+
+
+
 
 
 

@@ -4,9 +4,18 @@
 FGEM_Logit <- function(Beta,x,B){
   pvec  <- 1/(1+exp(-(x%*%Beta)))
   uvec <- (pvec*B)/((pvec*B)+(1-pvec))
-  Beta <- coefficients(glm(uvec~x+0,family=quasibinomial(link="logit")))
+  Beta <- coefficients(glm.fit(x = x,y = uvec,family=quasibinomial(link="logit"),control=list(maxit=50)))
   return(Beta)
 }
+
+FGEM_Logit_fit <- function(Beta,x,B){
+  pvec  <- 1/(1+exp(-(x%*%Beta)))
+  uvec <- (pvec*B)/((pvec*B)+(1-pvec))
+
+  return(Beta)
+}
+
+
 
 FGEM_Logit_log_lik <- function(Beta,x,B){
   pvec  <- 1/(1+exp(-(x%*%Beta)))
@@ -57,25 +66,19 @@ cfeat_mat <- function(annodf,datadf){
   return(inner_join(tannodf,datadf))
 }
 
-cfeat_df <- function(annodf,datadf,impute=F){
+cfeat_df <- function(annotation_df,datadf){
   require(dplyr)
-  stopifnot(length(unique(annodf$feature))==1)
-   isbin <- all(annodf$value==1)
-   datadf <- select(datadf,Gene,BF)
-   if(isbin){
-     full_feat <- left_join(datadf,annodf)
-     full_feat <- mutate(full_feat,feature=feature[!is.na(feature)][1],
-                         class=class[!is.na(class)][1],
-                         value=ifelse(is.na(value),0,1))
-   }else{
-     if(impute){
-       full_feat <- left_join(datadf,annodf)
-       full_feat <- mutate(full_feat,value=ifelse(is.na(value),mean(value,na.rm=T),value))
-     }else{
-       full_feat <- inner_join(datadf,annodf)
-     }
-   }
-   return(full_feat)
+  require(tidyr)
+  # stopifnot(length(unique(annodf$feature))==1)
+  annotation_df <- group_by(annotation_df,feature) %>% mutate(isBin=(n_distinct(value)==1),ngenes=n()) %>%ungroup()
+  mingenes <-filter(annotation_df,isBin==FALSE) %>% group_by(Gene) %>% summarise(nfeat=n_distinct(feature)) %>% ungroup() %>% filter(nfeat==max(nfeat))
+  if(all(annotation_df$isBin)){
+    mingenes <-distinct(annotation_df,Gene)
+  }
+  annotation_df <- annotation_df %>% inner_join(mingenes,by="Gene") %>% select(-one_of(c("feat_ind","nfeat","isBin","ngenes"))) %>% spread(feature,value,fill = 0)
+  datadf <- select(datadf,Gene,BF)
+  full_feat <- inner_join(datadf,annotation_df,by="Gene")
+  return(full_feat)
 }
 
 gen_prior_df <- function(annodf,datadf,scale=F){
@@ -101,14 +104,13 @@ pmean <-function(Beta,feat_mat){
 EM_mat <-function(fBeta,feat_matrix,BF){
   require(SQUAREM)
   require(dplyr)
+  require(tidyr)
   opf <- squarem(par=fBeta,fixptfn=FGEM_Logit,x=feat_matrix,B=BF)
   cn <- colnames(feat_matrix)
   opf$LogLik <- -FGEM_Logit_log_lik(opf$par,feat_matrix,BF)
-  retdf <-data.frame(opf) %>% select(-value.objfn) %>% mutate(Intercept=opf$par[1],feature=cn) %>% rename(Beta=par)
-  if(nrow(retdf)>1){
-    retdf <- filter(retdf,feature!="Intercept")
-  }
-  return(retdf)
+  opf$feature_name <- names(opf$par)
+  opdf <- as_data_frame(data.frame(opf)) %>% select(-value.objfn,-iter,-fpevals,-objfevals)
+  return(nest(opdf,par,feature_name))
 }
 
 
@@ -132,14 +134,41 @@ anno2mat <- function(full_feat){
   return(feat_mat)
 }
 
-FGEM <-function(fBeta,feat_mat,BF){
+FGEM <-function(fBeta,feat_mat,BF,null_features="Intercept"){
   retdf <- EM_mat(fBeta,feat_mat,BF) %>% mutate(nac=NA)
-  retdf <- EM_mat(fBeta[1],feat_mat[,"Intercept",drop=F],BF = BF) %>%
-    select(NullLogLik=LogLik) %>% mutate(nac=NA) %>%
-    inner_join(retdf) %>% select(-nac)
+  retdf <- EM_mat(fBeta[paste0("feat_mat",null_features)],feat_mat[,null_features,drop=F],BF = BF) %>%
+    select(NullLogLik=LogLik) %>% mutate(nac=NA)  %>% inner_join(retdf,by="nac") %>% select(-nac)
   retdf <- mutate(retdf,Chisq=-2*(NullLogLik-LogLik),
                   pval=pchisq(Chisq,df=ncol(feat_mat)-1,lower.tail=F))
   return(retdf)
+}
+
+
+ FGEM_bootstrap <- function(full_feat,scale=F,prior_mean=0.02,iterations=100){
+   require(dplyr)
+   require(tidyr)
+   require(foreach)
+   feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value)  %>% filter(complete.cases(.))
+   Genes <- select(feat_mat,Gene)
+   feat_mat <- mutate(Genes,Intercept=1) %>% inner_join(feat_mat) %>% select(-Gene)
+
+   BF <-feat_mat$BF
+   tmu <-(prior_mean*BF)/((prior_mean*BF)+(1-prior_mean))
+   feat_mat <- data.matrix(select(feat_mat,-BF))
+   feat_mat <- scale(feat_mat,scale,scale)
+   if(sum(is.na(feat_mat))==nrow(feat_mat)){
+     feat_mat[is.na(feat_mat)] <- 1
+   }
+   fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
+
+   while(any(is.na(fBeta))){
+     feat_mat <- feat_mat[,!is.na(fBeta)[-1]]
+     fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
+   }
+  foreach(i=1:iterations,.combine = "bind_rows") %do%{
+    subsamp <- sample(1:nrow(feat_mat),nrow(feat_mat),replace = T)
+    bretdf <- FGEM(fBeta=fBeta,feat_mat=feat_mat[subsamp,],BF=BF[subsamp]) %>% mutate(iter=i)
+  }
 }
 
 sem_df <-function(full_feat,scale=F,prior_mean=0.02){
@@ -165,8 +194,35 @@ sem_df <-function(full_feat,scale=F,prior_mean=0.02){
   }
   retdf <- FGEM(fBeta = fBeta,feat_mat=feat_mat,BF=BF)
 
+
   return(retdf)
 }
+
+em_df <-function(data_df,prior_mean=0.02,scale=F,null_feature){
+
+  stopifnot(nrow(datadf)>1,
+            all(null_feature %in% colnames(data_df)),
+            all(!is.na(data_df)))
+  data_df <-mutate(data_df,Intercept=1)
+  null_feature <- unique(c(null_feature,"Intercept"))
+  BF <- data_df$BF
+  tmu <-(prior_mean*BF)/((prior_mean*BF)+(1-prior_mean))
+
+  feat_mat <- data.matrix(select(data_df,-one_of("BF","Gene","class")))
+  feat_mat <- scale(feat_mat,scale,scale)
+  if(sum(is.na(feat_mat))==nrow(feat_mat)){
+    feat_mat[is.na(feat_mat)] <- 1
+  }
+  fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
+
+  while(any(is.na(fBeta))){
+    feat_mat <- feat_mat[,!is.na(fBeta)[-1]]
+    fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
+  }
+  fretdf <- FGEM(fBeta = fBeta,feat_mat=feat_mat,BF=BF,null_features = null_feature)
+  return(fretdf)
+}
+
 
 
 
@@ -189,7 +245,7 @@ gen_model <- function(feat_list,annodf,datadf,scale=F){
 
 
 posterior_results <- function(full_model,datadf,anno_df,scale=F){
-    retdf <- select(full_model,Beta,Intercept,feature) %>% inner_join(anno_df) %>% do(gen_prior_df(.,datadf,)) %>%
+    retdf <- select(full_model,Beta,Intercept,feature) %>% inner_join(anno_df) %>% do(gen_prior_df(.,datadf,scale=scale)) %>%
     mutate(old_prior=mean(prior))  %>% rename(new_prior=prior) %>% inner_join(datadf) %>%
     mutate(new_posterior=new_prior*BF/((new_prior*BF)+(1-new_prior)),
            old_posterior=old_prior*BF/((old_prior*BF)+(1-old_prior)),
@@ -197,12 +253,6 @@ posterior_results <- function(full_model,datadf,anno_df,scale=F){
   return(retdf)
 }
 
-
-stepwise_model <- function(feat_mat,BF,features,scale=F){
-  if(length(features==0)){
-
-  }
-}
 
 #     feat_res <- group_by(full_feat,feature) %>% mutate(isbin=(length(unique(value))==2),
 #                                            feat_bin=factor(ifelse(isbin,factor(value),value>quantile(value,prior))),

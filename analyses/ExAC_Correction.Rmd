@@ -1,0 +1,80 @@
+---
+title: "ExAC_Corrections"
+author: "Nicholas Knoblauch"
+date: "October 15, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r data}
+library(FGEM)
+library(readr)
+library(dplyr)
+library(lazyeval)
+datafile <- "~/Dropbox/BayesianDA/FGEM_Data/TADA_ASC_SSC_results_Dec23.csv"
+anno_dff <- "~/Dropbox/BayesianDA/FGEM_Data/all_annotations.RDS"
+
+datadf <-read.table(datafile,header=T,sep=",",stringsAsFactors = F) 
+anno_df <- readRDS(anno_dff)
+exacf <- "~/Dropbox/BayesianDA/FGEM_Data/fordist_cleaned_exac_r03_march16_z_pli_rec_null_data.txt"
+exacdf <- read.table(exacf,sep="\t",stringsAsFactors = F,header=T)
+exacdf <- dplyr::select(exacdf,-chr,-transcript)  %>% dplyr::rename(Gene=gene)
+exacdf <- inner_join(exacdf,datadf)
+exac_feat <- c("syn_z",
+               "mis_z",
+               "lof_z",
+               "pLI",
+               "pRec",
+               "pNull")
+i <- 1
+eq <- paste0("y~x")
+eresid <- exacdf %>% mutate(res_syn_z=residuals(lm(interp(eq,y=syn_z,x=bp))))
+eresid <-  mutate(eresid,res_mis_z=residuals(lm(interp(eq,y=mis_z,x=bp))))
+eresid <-  mutate(eresid,res_lof_z=residuals(lm(interp(eq,y=lof_z,x=bp))))
+eresid <-  mutate(eresid,res_pLI_z=residuals(lm(interp(eq,y=pLI,x=bp))))
+eresid <-  mutate(eresid,res_pnull_z=residuals(lm(interp(eq,y=pNull,x=bp))))
+eresid <-  mutate(eresid,res_pRec_z=residuals(lm(interp(eq,y=pRec,x=bp))))
+
+exac_feat <- c("syn_z",
+               "mis_z",
+               "pLI",
+               "pRec",
+               "pNull")
+ofeat <- anno2df(select(eresid,Gene,one_of(exac_feat)),feat.name="ExAC_z")
+eres_feat <- select(eresid,Gene,starts_with("res_"))
+eres_feat <- anno2df(eres_feat,feat.name="ExAC_resid")
+anno_df <- bind_rows(anno_df,eres_feat)
+go_sigfeat <- c("GO:0071420", "GO:0006473", "GO:0097119", "GO:0001711", "GO:0097114")
+nsig_feat <- c(go_sigfeat,unique(eres_feat$feature))
+nsig_feat <- nsig_feat[!nsig_feat%in%c("res_lof_z","res_pRec_z")]
+
+
+sanno_df <- filter(anno_df,feature=="GO:0018024")
+smdf <- cfeat_df(sanno_df,datadf)
+tgmodel <- gen_model("GO:0018024",anno_df,datadf)
+res_post <- posterior_results(nfmodel,datadf,anno_df) %>% arrange(desc(post_improvement))
+head(res_post)
+tail(res_post)
+res_results <- group_by(eres_feat,feature) %>% do(sem_df(cfeat_df(.,datadf)))
+
+
+# exac_zs <- select(exacdf,Gene,BF,qvalue,one_of(exac_feat))
+neresid  <- inner_join(eresid,res_post)
+
+cor(log(neresid$new_posterior),log(neresid$res_pRec_z),)
+
+texac_zs <- mutate_at(exac_zs,vars(ends_with("_z")),percent_rank)
+filter(texac_zs,Gene=="KATNAL2")
+exacdf <- anno2df(exacdf,feat.name="ExAC")
+
+```
+

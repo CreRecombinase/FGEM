@@ -1,0 +1,108 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r genanno}
+hapinsf <- "~/Dropbox/BayesianDA/FGEM_Data/Huang_Plosgen_haploinsufficiency_score_by_gene.txt"
+hapdf <- read.table(hapinsf) %>% dplyr::rename(Gene=V1,value=V2) %>% dplyr::mutate(feature="HapInsuff",class="HapInsuff")
+```
+
+We can also use continuous features.  As an example, let's use ExAC conservation, and brain gene expression.
+
+```{r ExAC}
+
+
+expf <- "~/Dropbox/BayesianDA/FGEM_Data/BrainSpanSexVar.RDS"
+expmat <- readRDS(expf)
+expdf <- exp2df(expmat)
+all_anno_df <- bind_rows(exacdf,hapdf,GOdf,expdf) 
+all_anno_df <-distinct(all_anno_df,feature) %>% mutate(feat_ind=1:n()) %>% inner_join(all_anno_df)
+
+max(all_anno_df$feat_ind)
+saveRDS(all_anno_df,"~/Dropbox/BayesianDA/FGEM_Data/all_annotations.RDS")
+saveRDS(sub_all_anno_df,"~/Dropbox/BayesianDA/FGEM_Data/sub_annotations.RDS")
+ 
+# full_feat <- group_by(,feature) %>% do(cfeat_df(.,datadf,impute=F))
+
+
+```
+
+
+##Analyzing results
+
+```{r results}
+library(ggplot2)
+library(tidyr)
+library(FGEM)
+library(dplyr)
+
+exac_anno <- distinct(exacdf,feature) %>% mutate(feat_ind=1:n()) %>% inner_join(exacdf)
+GO_df <- distinct(BPGOdf,feature) %>% mutate(feat_ind=1:n()) %>% inner_join(BPGOdf)
+
+
+exac_feat <- distinct(exacdf,feature) %>% mutate(feat_ind=1:n()) %>% mutate(class="ExAC")
+GO_feat <- distinct(BPGOdf,feature) %>% mutate(feat_ind=1:n()) %>% mutate(class="GO_BP")
+  
+afgemres <- dir("~/Dropbox/BayesianDA/FGEM_Data/NFGEM_GO_RDS/",full.names = T)
+
+go_res <- bind_rows(lapply(afgemres,readRDS)) %>% distinct(feature,.keep_all=T) %>% inner_join(GO_feat) %>% mutate(qval=p.adjust(pval)) %>% arrange(qval)
+exac_res <- readRDS("~/Dropbox/BayesianDA/FGEM_Data/Exac_res.RDS") %>% ungroup() %>% inner_join(exac_feat)
+
+all_res <- bind_rows(go_res,exac_res) %>% arrange(qval)
+
+rep_res <- select(all_res,feature,Beta,Intercept,Chisq,pval,class,qval)
+sig_res <- filter(rep_res,qval<0.05)
+sig_rep <- filter(rep_res,qval<0.1) %>% select(feature,Beta,Intercept,class)
+
+# boot_pRec <- filter(exac_anno,feature=="pRec") %>% do(FGEM_bootstrap(cfeat_df(.,BFdata,impute=F)))
+
+anno_df <- bind_rows(exacdf,BPGOdf)
+
+sig_anno <- inner_join(sig_rep,anno_df)
+
+sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = T)
+sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = F)
+
+
+sfinal_posterior <- posterior_results(sfinal_model,odatadf,anno_df)
+
+ select(post_results,Gene,new_prior,new_posterior,old_posterior,post_improvement,BF) %>% arrange(desc(post_improvement)) %>% head(10)
+ 
+```
+
+
+```{r}
+
+ggplot(posterior_results)+geom_point(aes(x=log10(BF),y=post_improvement))
+ arrange(post_data,desc(post_improvement)) %>% select(Gene,new_prior,new_posterior,old_posterior,post_improvement,BF) %>% tail
+
+ 
+ 
+ # ggplot(post_data)+geom_point(aes(x=new_prior,y=new_posterior))
+# sig_prior <- group_by(sig_anno,feature) %>% do(gen_prior_df(.,datadf = datadf)) %>% ungroup()
+# sig_mat <- spread(sig_prior,key=feature,value=prior) %>% filter(complete.cases(.)) %>% dplyr::select(-Gene) %>%  data.matrix()
+# sig_pca  <- prcomp(sig_mat,center=T,scale=T)
+# biplot(sig_pca)
+# 
+# Exac_prior <-  inner_join(feat_class,sig_prior) %>% filter(class=="ExAC")
+# Exac_mat <- spread(data=Exac_prior,key=feature,value=prior) %>% filter(complete.cases(.))
+# Exac_mat <- data.matrix(select(Exac_mat,-class,-Gene))
+# Exac_pc <- prcomp(Exac_mat,center=T,scale=T)
+# biplot(Exac_pc)
+# 
+# 
+# GO_prior <-  inner_join(feat_class,sig_prior) %>% filter(class%in%c("GO_BP"))
+# GO_mat <- spread(data = GO_prior,key = feature,value = prior) %>% filter(complete.cases(.))
+# GOpca <- prcomp(data.matrix(select(GO_mat,-Gene,-class)),center = T,scale. = T)
+# biplot(GOpca)
+)
+
+```
+```{r}
+
+ggplot(post_results)+geom_point(aes(x=log10(BF),y=new_posterior))
+```
+
+
+

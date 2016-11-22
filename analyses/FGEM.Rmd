@@ -1,0 +1,324 @@
+---
+title: "FGEM"
+author: "Nicholas Knoblauch"
+date: "October 7, 2015"
+output: html_document
+---
+
+####Preprocessing
+```{r}
+#library for transforming data
+library(reshape2)
+#libraries for pulling GO terms
+library(topGO)
+library(org.Hs.eg.db)
+#library for creating sparse matrices
+library(Matrix)
+
+#File containing Bayes Factors for all I genes
+BayesFactorFile <- "~/Dropbox/BayesianDA/FGEM/Data/TADA_ASC_SSC_results_Dec23.csv"
+#Destination file for annotation matrix A
+AnnotationMatrixOutfile <- "~/Dropbox/BayesianDA/FGEM/DataGOmat.RDS"
+BF.df <- read.table(BayesFactorFile,header=T,sep=",")
+
+#Create a new dataframe with just the Bayes Factor and the Bayes Factors
+allgenes <- data.frame(Gene=BF.df$Gene,B=BF.df$BF,stringsAsFactors=F)
+rownames(allgenes) <- allgenes$Gene
+
+#Create an index for each gene, this will correspond to the row entry of the annotation matrix
+allgenes$Gi <- as.integer(factor(allgenes$Gene))
+#Pull all Molecular Function  and Biological Process GO terms for genes we have BF for and melt them into data frames
+GO.MF.df <- melt(annFUN.org("MF",feasibleGenes=BF.df$Gene,mapping="org.Hs.eg.db",ID="symbol"))
+colnames(GO.MF.df) <- c("Gene","GOT")
+GO.BP.df <- melt(annFUN.org("BP",feasibleGenes=BF.df$Gene,mapping="org.Hs.eg.db",ID="symbol"))
+colnames(GO.BP.df) <- c("Gene","GOT")
+
+#Concatenate The BP and MF dataframes, pull Gene indices from before and generate annotation indices
+GO.df <- rbind(GO.MF.df,GO.BP.df)
+GO.df$Gi <- allgenes[GO.df$Gene,"Gi"]
+GO.df$GOi <- as.integer(factor(GO.df$GOT))
+
+#Generate sparse matrix of annotations.  Specify row, column and value (1 in this case) for each non-zero entry
+GOmat <- sparseMatrix(i=GO.df$Gi,j = GO.df$GOi,x = rep(1,nrow(GO.df)),
+                       dimnames=list(as.character(allgenes$Gene),
+                                     as.character(levels(factor(GO.df$GOT)))))
+#About half (6368/13324) of GO terms have fewer than 3 genes with that annotation, remove these terms.  
+GOmat <- GOmat[,colSums(GOmat)>=3]
+
+#We now order the remaining terms by the significance of their association with the Bayes Factor
+#(This takes a while, so it's commented out)
+# B <- allgenes[rownames(GOmat),"B"]
+# Betap<- numeric(ncol(GOmat))
+# for(i in 1:ncol(GOmat)){
+#     if(i%%100==0){
+#         print(i)
+#     }
+#     Betap[i] <- summary(lm(B~GOmat[,i]))[["coefficients"]][2,4]
+# }
+# GOmat <- GOmat[,order(Betap)]
+# saveRDS(GOmat,file=AnnotationMatrixOutfile)
+```
+
+
+####EM
+
+
+```{r}
+#Usually read from the command line to get which iteration to use
+#args <- commandArgs(trailingOnly=T)
+GOmatfile <- "~/Dropbox/BayesianDA/FGEM/Data/GOmat.RDS"
+BayesFactorFile <- "~/Dropbox/BayesianDA/FGEM/Data/TADA_ASC_SSC_results_Dec23.csv"
+Startterm <- 1
+Numterms <- 10
+EMiter <- 50
+Outdir <- "~/Dropbox/BayesianDA/"
+
+
+GOmat <- readRDS(GOmatfile)
+BF.df <- read.table(BayesFactorFile,header=T,sep=",")
+
+#To start the EM algorithm, we need a starting guess for Beta. To do this we will use 
+#logistic regression on thresholded Bayes Factors (Bayes Factor>3) 
+BF.df$sig <- ifelse(BF.df$BF>5,1,0)
+Z <- BF.df$sig
+
+
+
+
+allgenes <- data.frame(Gene=BF.df$Gene,Z,B=BF.df$BF,stringsAsFactors=F)
+rownames(allgenes) <- allgenes$Gene
+
+#Pull the relevant rows from the dataframe
+
+B <- allgenes[rownames(GOmat),"B"]
+
+####Starting EM
+
+
+#If the number of terms to be tested is greater than the number of remaining terms
+# we change the number of terms to be tested
+if(Startterm+Numterms>ncol(GOmat)){
+    Numterms <- ncol(GOmat)-Startterm
+}
+
+#Subset the GO matrix to only the terms we're going to test
+GOmat <- GOmat[,Startterm:(Startterm+Numterms)]
+
+
+#Computing the null model
+likfun <- function(x,B){
+  sum(log((1/(1+exp(-x)))*B+(1-(1/(1+exp(-x))))))
+}
+mo <- optimize(likfun,interval = c(-10,10),B=B,maximum=T)
+
+
+#Function that performs EM
+FGEM <- function(x,B,Z=NULL,iters=NULL,tol=NULL,keep=F,NullLogLikelihood=NULL){
+  #x is a vector of length I with relevant annotations
+  #B is a vector of length I with Bayes Factors
+  #Z is a vector of length I with the initial guess for membership (1's or 0's)
+  ## Z can be NULL, in which case Z will be randomly sampled from a binomial with probabilities according to the Bayes Factor.
+  
+  #iters is the number of EM iterations.  If not specified, EM will be run untill convergence specified by tol.
+  
+  if(is.null(NullLogLikelihood)){
+    likfun <- function(x,B){
+      sum(log((1/(1+exp(-x)))*B+(1-(1/(1+exp(-x))))))
+    }
+    NullLogLikelihood  <- optimize(likfun,interval = c(-10,10),B=B,maximum=T)$objective
+  }
+  
+  if(is.null(tol)&is.null(iters)){
+    stop("Must specify tol or iters")
+  }
+  if(ifelse(is.null(Z),
+            length(x)!=length(B),
+            (length(x)!=length(B))|(length(x)!=length(Z))|(length(B)!=length(Z)))){
+    stop("Length of x and B (and Z, if specified) must be equal")
+  }
+  
+  if(is.null(Z)){
+    pB <- ecdf(B)(B)
+    sigcount <- sum(pB)/sum(B>10)
+    Z <- rbinom(length(B),size = 1,prob = pB/sigcount)
+  }
+  if(!is.null(iters)&is.null(tol)){
+    tol <- 0
+  }
+  if(!is.null(tol)&is.null(iters)){
+    iters <- 1000
+  }
+  if(keep){
+    matdim <- iters
+    Beta <- matrix(0,2,matdim)
+    Beta[,1] <- coefficients(glm(Z~x,family=binomial))
+    pvec <- 1/(1+exp(-(Beta[1,1]+Beta[2,1]*x)))
+    LogLikelihood <- numeric(matdim)
+    LogLikelihood[1] <- sum(log(pvec*B+(1-pvec)))
+    i <- 2
+    while ((i <= iters)&(i<1000)){
+      print(i)
+     #This is the mixture proportion
+      uvec  <- (pvec*B)/((pvec*B)+(1-pvec))
+      #This is where we optimize the Q function (in this case, using logistic regression)
+      Beta[,i] <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+      pvec  <- 1/(1+exp(-(Beta[1,i]+Beta[2,i]*x)))
+      #If the difference between the current log likelihood and the previous log likelihood is below the tolerance, we quit
+      rettol <- sum(log(pvec*B+(1-pvec)))-LogLikelihood[i-1]
+      if(rettol<tol){
+        LogLikelihood[i] <- sum(log(pvec*B+(1-pvec)))
+        break
+      }
+      LogLikelihood[i] <- sum(log(pvec*B+(1-pvec)))
+      #If we're about to stop and we still aren't better than the null model, we keep going (up to 1k iterations)
+      if(i==(iters-1)){
+        if(LogLikelihood[i]<NullLogLikelihood){
+          oBeta <- Beta
+          oLogLikelihood <- LogLikelihood
+          Beta <- matrix(0,2,iters+10)
+          Beta[,1:iters] <- oBeta
+          LogLikelihood <- numeric(iters+50)
+          LogLikelihood[1:iters] <- oLogLikelihood
+          iters <- iters+10
+        }
+      }
+      i <- i+1
+    }
+    
+    Chisq <- -2*(NullLogLikelihood-LogLikelihood[matdim])
+    retlist <- list(Intercept=Beta[1,matdim],Beta=Beta[2,matdim],
+                    LogLikelihood=LogLikelihood[matdim],
+                    NullLogLikelihood=NullLogLikelihood,
+                    Chisq=Chisq,tol=rettol)
+  }
+  else{
+    Beta <- coefficients(glm(Z~x,family=binomial))
+    pvec <- 1/(1+exp(-(Beta[1]+Beta[2]*x)))
+    LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+    i <- 1
+    while ((i < iters)&(i<1000)){
+      #This is the mixture proportion
+      uvec  <- (pvec*B)/((pvec*B)+(1-pvec))
+      #This is where we optimize the Q function (in this case, using logistic regression)
+      Beta <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+      pvec  <- 1/(1+exp(-(Beta[1]+Beta[2]*x)))
+      #If the difference between the current log likelihood and the previous log likelihood is below the tolerance, we quit
+      rettol <- sum(log(pvec*B+(1-pvec)))-LogLikelihood
+      if(rettol<tol){
+        LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+        break
+      }
+      LogLikelihood <- sum(log(pvec*B+(1-pvec)))
+      #If we're about to stop and we still aren't better than the null model, we keep going (up to 1k iterations)
+      if(i==(iters-1)&LogLikelihood<NullLogLikelihood){
+        iters <- iters+10
+      }
+      i <- i+1
+    }
+    Chisq <- -2*(NullLogLikelihood-LogLikelihood)
+    retlist <- list(Intercept=Beta[1],Beta=Beta[2],
+                    LogLikelihood=LogLikelihood,
+                    NullLogLikelihood=NullLogLikelihood,
+                    Chisq=Chisq,tol=rettol)
+  } 
+  if(keep){
+    mats <- list(Betas=Beta,LogLikelihood=LogLikelihood)
+    return(list(retlist,mats))
+  }else{
+    return(retlist)
+  }
+}
+
+```
+
+Let's run it on five different features. By using the `keep=T` argument, we can show the convergence of Beta and the likelihood function.
+
+```{r}
+
+NullLogLikelihood <- mo$objective
+Niter <- FGEM(x = GOmat[,10],B = B,iters = 50)
+FiveIters <- apply(GOmat[,1:5],2,FGEM,B=B,iters=50,keep=F,NullLogLikelihood=NullLogLikelihood)
+fi <- ldply(FiveIters,data.frame)
+
+```
+
+
+###Top Results
+
+After running in parallel across 100 CPUs on pps, we can summarize the results
+
+```{r}
+
+GOmat <- readRDS("~/Dropbox/BayesianDA/GOmat.RDS")
+CompletedAnalyses <- "~/Dropbox/BayesianDA/RDS_BDF/"
+allBDFfiles <- dir(CompletedAnalyses,full.names = T)
+BDFl <- lapply(allBDFfiles,readRDS)
+allBDF <- ldply(allBDFfiles,readRDS)
+allBDF <- allBDF[!is.na(allBDF$GO),]
+allBDF$chisq <- -2*(NullLogLikelihood-log(allBDF$likalt))
+badBDF <- allBDF[allBDF$chisq<0,]
+
+
+
+allBDF <- allBDF[ allBDF$chisq>0,]
+allBDF <- allBDF[!duplicated(allBDF$GO),]
+rownames(allBDF) <- allBDF$GO
+allBDF <- allBDF[order(allBDF$p),]
+allBDF$padj <- p.adjust(allBDF$p,method = "fdr")
+
+sigGO <- allBDF$GO[ allBDF$p<0.05]
+
+sigmat <- GOmat[,which(colnames(GOmat) %in% sigGO)]
+
+dsm <- data.frame(which(sigmat!=0,arr.ind = T),stringsAsFactors = F)
+dsm$gene <- rownames(sigmat)[dsm[,1]]
+dsm$GO <- colnames(sigmat)[dsm[,2]]
+dsm$pval <- allBDF[dsm$GO,"p"]
+GO.annotation <- select(GO.db,dsm$GO,c("TERM","ONTOLOGY"))
+uGO <- GO.annotation[!duplicated(GO.annotation$GOID),]
+rownames(uGO) <- uGO$GOID
+allBDF$TERM <- uGO[ allBDF$GO,]
+dsm <- cbind(dsm,GO.annotation)
+dsm <- dsm[,-c(1,2)]
+
+
+```
+
+How do these p values compare to the fisher's exact test(with a cutuff of 5)
+```{r}
+
+FGEM.df <- readRDS("~/Dropbox/BayesianDA/FGEM.RDS")
+FGEM.df <-rename(FGEM.df,replace = c(".id"="GOid"))
+FGEM.df <- FGEM.df[!duplicated(FGEM.df$GOid),]
+
+FGEM.df <- FGEM.df[order(FGEM.df$p),]
+#Use BF 50
+ Z <- ifelse(BF.df$BF>10,1,0)
+ 
+afish <- apply(GOmat,2,function(x){
+  fisher.test(table(x,Z),alternative = "greater")[["p.value"]]
+})
+
+fish.df <- data.frame(GOid=names(afish),fishp=afish,stringsAsFactors=F)
+#saveRDS(fish.df,"~/Dropbox/BayesianDA/fish.df.RDS")
+fish.df <-readRDS("~/Dropbox/BayesianDA/fish.df.RDS")
+FGEM.df <- FGEM.df[FGEM.df$GOid %in% rownames(fish.df),]
+fish.df <- fish.df[FGEM.df$GOid,]
+
+plot(FGEM.df$p,fish.df$fishp,xlab="FGEM p",ylab="fisher exact p")
+
+bmethod <- data.frame(GOid =rownames(fish.df),FGEMp=FGEM.df$p,fishp=fish.df$fishp,stringsAsFactors=F)
+
+bmethod <- bmethod[order(bmethod$fishp),]
+plot(bmethod$FGEMp[bmethod$fishp<0.05],bmethod$fishp[bmethod$fishp<0.05])
+t.test(B~GOmat[,"GO:0032206"])
+fisher.test(table(GOmat[,"GO:0032206"],Z))
+
+
+Geneiter <- FGEM(x = avg.exp[,2],B = B,iters = 50,keep=F)
+
+FGEM.sig.GO <- rownames(bmethod[bmethod$FGEMp<0.05,]),alternative = "greater")
+fisher.sig.GO <- rownames(bmethod[bmethod$fishp<0.05,])
+
+fisher.test(table(bmethod$FGEMp<0.05,bmethod$fishp<0.05),alternative="greater")
+table(FGEM.sig.GO,fisher.sig.GO)
