@@ -1,0 +1,92 @@
+---
+title: "FGEM GO Analysis"
+author: "Nicholas Knoblauch"
+date: "October 20, 2015"
+output: html_document
+---
+
+#Overview
+
+The GO analysis consisted of analyzing Bayes Factors for 18735 genes and 5906 GO terms.  Each GO term had at least 4 genes, and each gene had at minimum 0 GO terms (that's bad), and at most 148 go terms, with an average of 8.387.
+
+The results 
+
+##Table of Terms
+|Term        | Name                              | Beta         |
+|------------|-----------------------------------|--------------|
+| GO:0045087 |  innate immune response           |-2.745113e+01 |
+|GO:0042803  | protein homodimerization activity |-1.447703e+00 | 
+|GO:0007512  | Adult Heart Development           |3.687325e+00  |
+| GO:0031017 |  exocrine pancreas development    |3.525719e+00  |
+| GO:0033088 | negative regulation of immature T cell proliferation in thymus | 1.822831e+01 |
+
+
+```{r}
+library(plyr)
+library(Matrix)
+setwd("~/Dropbox/BayesianDA/FGEM/Data/FGEM_GO_RDS/")
+
+BFile <- "../TADA_ASC_SSC_results_Dec23.csv"
+BF.G <- read.table(BFile,header=T,sep=",")
+B <- BF.G$BF
+
+GOmat <- readRDS("../GOmat.RDS")
+GOres.files <- dir()
+GOres <- ldply(GOres.files,readRDS)
+GOres$pval <- pchisq(GOres$Chisq,df=1,lower.tail=F)
+GOres <- GOres[order(GOres$pval),]
+GOres$adjp <- p.adjust(GOres$pval,method = "fdr")
+head(GOres[order(abs(GOres$Beta),decreasing = T),])
+
+sigGOres <- GOres[GOres$pval<0.05,]
+
+head(sigGOres)
+
+sigGOmat <- GOmat[,sigGOres$X1]
+sigGOres <- sigGOres[order(abs(sigGOres$Beta),decreasing = T),]
+
+
+BFGO <- FGEM(sigGOmat,B,iters=50)
+
+
+
+
+BFGO$pval <- pchisq(BFGO$Chisq,df=1,lower.tail=F)
+Betas <- t(t(BFGO$Beta))
+mx <- cbind(1,as.matrix(sigGOmat[,rownames(BFGO[-1,])]))
+
+pvec <- 1/(1+exp(-(mx%*%Betas)))
+
+uvec  <- (pvec*B)/((pvec*B)+(1-pvec))
+      #This is where we optimize the Q function (in this case, using logistic regression)
+      Beta[,i] <- coefficients(glm(uvec~x,family=quasibinomial(link="logit")))
+      pvec  <- 1/(1+exp(-(Beta[1,i]+Beta[2,i]*x)))
+coefficients(glm(B~x,family=quasibinomial(link="logit")))
+
+
+
+```
+
+
+We can plot some of the probablilities for the highest significant Betas vs the probabilities under the null
+
+
+```{r}
+
+nGOmat <- GOmat[,sigGOres$X1]
+nnGOmat <- nGOmat[,colSums(nGOmat)>100]
+rownames(sigGOres) <- sigGOres$X1
+
+nB <- glm(B~nnGOmat,family=quasibinomial(link="logit"))
+for(i in 1:6){
+  gt <- colnames(nnGOmat)[i]
+  Beta <- c(sigGOres[gt,"Intercept"],sigGOres[gt,"Beta"])
+  x <- GOmat[,gt]
+  upp <- 1/(1+exp(-(mx%*%Betas)))
+  nupp <- upp*B/(upp*B+1-upp)
+  plot(nupp~log(B),main="Overall GO model",xlab="log(B)",ylab="posterior")
+}
+```
+
+reranking of genes
+

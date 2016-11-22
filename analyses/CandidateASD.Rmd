@@ -1,0 +1,73 @@
+---
+title: "ASD Gene Set"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Candidate ASD genes
+
+```{r load,echo=FALSE,message=FALSE,warning=FALSE}
+library(dplyr)
+library(ggplot2)
+source("~/Dropbox/BayesianDA/FGEM/SFARIFunc.R")
+outdir <- "~/Dropbox/BayesianDA/GSE/"
+featdir <- "~/Desktop/SFARI/"
+consdf <- gen_annotations(filelist,featdir)
+consdf <- mutate(consdf,TADAq=ifelse(is.na(TADAq),1,TADAq))
+consdf <- mutate(consdf,TADAi=ifelse(TADAq<0.15,1,0))
+consdf <- mutate(consdf,UASD=pmax(TADAi,ASDc))
+result_df <-readRDS("~/Dropbox/BayesianDA/GSE/COMBUASD-3.RDS")
+pred_df <- readRDS("~/Dropbox/BayesianDA/GSE/COMBUASD-3-PRED.RDS")
+err_df <- group_by(result_df,iter) %>% summarise(err=err[1])
+nconsdf <- select(consdf,-ASDc,-TADAq,-TADAi) %>%  rename(y=UASD) %>% combofeat(sep="5")
+
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r misclass, echo=FALSE}
+
+ggplot(err_df)+geom_histogram(aes(x=err),binwidth=.005)+ggtitle(label="CV misclassification error across iterations")
+
+```
+
+
+```{r effect,echo=FALSE}
+
+ggplot(result_df)+geom_histogram(aes(x=B))+facet_wrap(~coef)+ggtitle("Distribution of effect Betas")
+filter(result_df,B!=0) %>% mutate(BetaSign=ifelse(B>0,"Positive","Negative")) %>% filter(!grepl("5",coef)) %>% 
+  ggplot(aes(coef))+geom_bar()+geom_bar(aes(fill=BetaSign))+ggtitle("Number of nonzero Betas")
+
+ filter(result_df,B!=0) %>% mutate(BetaSign=ifelse(B>0,"Positive","Negative")) %>% filter(grepl("5",coef)) %>% 
+  separate(coef,c("firstCoef","secondCoef"),sep="5",remove=T) %>% do(bind_rows(.,rename(.,firstCoef=secondCoef,secondCoef=firstCoef))) %>% 
+  ggplot(aes(secondCoef))+geom_bar()+geom_bar(aes(fill=BetaSign))+ggtitle("Number of nonzero Betas(Interaction Terms)") +facet_wrap(~firstCoef,scales="free")
+
+
+```
+
+
+
+```{r}
+mpred <- group_by(pred_df,gene) %>% summarise(varp=var(pred),meanp=mean(pred),medp=median(pred),minp=min(pred),maxp=max(pred)) %>% ungroup() %>% arrange(desc(minp))
+predf <- inner_join(consdf,mpred) %>% arrange(desc(minp))
+predf <- arrange(predf,desc(meanp))
+
+ggplot(predf)+geom_point(aes(x=log(meanp),y=log(TADAq)))
+ggplot(predf)+geom_point(aes(x=log(minp),y=log(TADAq)))
+
+write.table(predf,"~/Dropbox/BayesianDA/FGEM/ASD_Candidates.txt",col.names=T,row.names=F,sep="\t")
+finlist <- filter(predf,TADAq<0.5) %>% arrange(desc(meanp))
+arrange(finlist,desc(worstp)) %>% head
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

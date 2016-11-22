@@ -1,0 +1,111 @@
+---
+title: "FGEM_Simulations"
+author: "Nicholas Knoblauch"
+date: "October 12, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Simulating data
+
+The data that give rise to the Bayes factors for this simulation come from the following scenario.  
+
+Let $G$ be the number of genes, and $N$ be the number of samples,let $X_{i,j}$ denote a bernoulli random variable corresponding to some event (maybe a LoF de novo mutation) in gene $i$ in sample $j$, and let $X_i$ be a binomially distributed variable corresponding to the total number of events observed in gene $i$ (i.e $X_i \sim \text{Bernoulli}(N,p_i)$). If $Z_i=1$, Then $p_i$ is distributed according to a Beta distribution with paramters $\alpha=\beta=0.5$.  If $Z_i=0$, $p_i$ is 0.5.  
+
+## One causal (continuous) annotation
+
+For the simplest scenario, there will be one annotation will be continuous and uniform on $-1,1$, and one constant "intercept" annotation. The values of $\beta_0$, and $\beta_1$ are chosen so that the prior mean is $\sim 0.05$, corresponding to about 1000 genes being causal. I simulated the data and estimated $\beta_0$, and $\beta_1$ 100 times, and plotted the histogram of $\beta_1$
+
+```{r one_causal,echo=FALSE}
+library(dplyr)
+library(ggplot2)
+results_df <- simfunc(ngenes=20000,
+                      samplesize=1000,
+                      iterations=100,
+                      betavec=c(-3,1.5))
+ggplot(results_df)+geom_histogram(aes(x=Beta))+geom_vline(xintercept=1.5,col="purple")+ggtitle("Distribution of Beta\n One continuous feature")
+
+```
+
+
+## Two continuous features, joint model
+
+Same setup, but now there are two features
+
+```{r}
+library(foreach)
+annofunc <- list("Intercept"=rbinom,
+                 "a"=runif)
+annofeat <- list("Intercept"=list(size=1,prob=1),
+                 "a"=list(min=-1,max=1))
+ngenes <- 20000
+A <- gen_anno(annofunc,annofeat,20000)
+betavec <- c(-3,10)
+tprior <- gen_p(betavec,x = A)
+betap <- c(0.1,0.1)
+
+comp_res <- foreach(i=1:100,.combine = "bind_rows") %do% {
+  gprior=mean(tprior)
+  sample_data <- sim_dat(tprior,ngenes,samplesize=100,betap) %>% mutate(tmu=(gprior*XH1)/((gprior*XH1)+(1-gprior)*XH0),
+                                                                        bmu=(gprior*BF)/((gprior*BF)+(1-gprior)))
+  
+  tfbeta <- coefficients(glm(tmu~A+0,data=sample_data,family=quasibinomial(link="logit")))
+  bfbeta <- coefficients(glm(bmu~A+0,data=sample_data,family=quasibinomial(link="logit")))
+  tretdf <- true_est(fBeta = tfbeta,A = A,XH1 = sample_data$XH1,XH0 = sample_data$XH0)
+  bretdf <- FGEM(fBeta = tfbeta,feat_mat = A ,BF = sample_data$BF)
+}
+
+```
+
+
+
+```{r}
+ggplot(comp_res)+geom_histogram(aes(x=Intercept_b))+geom_vline(aes(xintercept = Intercept))
+```
+
+
+
+
+
+```{r}
+ggplot(comp_res)+geom_histogram(aes(x=Beta_b))+geom_vline(aes(xintercept = Beta))
+```
+
+```{r}
+ggplot(comp_res)+geom_histogram(aes(x=Beta_t))+geom_vline(aes(xintercept = Beta))
+```
+
+
+
+
+
+## One causal, one non-causal feature, joint model
+
+```{r}
+
+
+feat_names <- c("Intercept","Causal","Noncausal")
+annofunc <- list(rbinom,
+                 runif,
+                 runif)
+names(annofunc) <- feat_names
+annofeat <- list(list(size=1,prob=1),
+                 list(min=-1,max=1),
+                 list(min=-1,max=1))
+names(annofeat) <- feat_names
+betavec <- c(-3,1.5,0)
+betadf <- data_frame(feature=feat_names[-1],trueBeta=betavec[-1])
+results_df <- simfunc(betavec=betavec,annofunc=annofunc,annofeat=annofeat)
+
+results_df <- inner_join(betadf,results_df)
+ggplot(results_df)+geom_histogram(aes(x=Beta))+geom_vline(aes(xintercept=trueBeta),col="purple")+facet_wrap(~feature)+ggtitle("Distribution of Beta\n One causal and one non-causal feature")
+
+
+
+```
+
+
+

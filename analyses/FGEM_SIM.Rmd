@@ -1,0 +1,121 @@
+---
+title: "FGEM_Simulation"
+author: "Nicholas Knoblauch"
+date: "May 2, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Simulation
+
+I will use the full suite of generated annotations, I will simulate effect sizes, then simulate data, and try to recapture the results
+
+## Annotations
+
++ Gene Ontology
++ Exac 
+
+### Gene Ontology
+
+We'll start by reading in the data, the next step 
+
+```{r libs,echo=FALSE}
+library(rhdf5)
+library(Matrix)
+library(ggplot2)
+library(SQUAREM)
+source("~/Dropbox/BayesianDA/FGEM/FGEM_Func.R")
+annof <- "~/Dropbox/BayesianDA/FGEM/Data/Annomat.h5"
+
+datmat <- sparseAnnoread(annof,"Annotations/GO/GOmat",
+                       rowpath="GeneList/GL",
+                       colpath="Annotations/GO/GOterms")
+
+
+ggplot()+geom_histogram(aes(x=log(colSums(datmat))))
+
+
+```
+Master simulation parameters
+
+
+```{r}
+Ncase <- 500
+Nctrl <- 500
+
+nfeat <- 100
+gambar <- 5
+sigma <- .1
+
+testmat <- datmat[,sample(ncol(datmat),100,replace=F)]
+testmat <- testmat[rowSums(testmat)>0,]
+ngenes <- nrow(testmat)
+
+```
+
+### Simulation scenarios
+#### 1) Dense effect size
+
+For scenario 1, effect size will be modeled as non-sparse (dense).
+
+Effect size will be additive, centered at 0, normally distributed, with variance 1.
+
+```{r dense}
+Betas <- rnorm(nfeat)
+
+pr <- GenPrior(c(0,Betas),testmat)[,1]
+effc <- (pr*mean(1-pr))/((1-pr)*mean(pr))
+
+
+
+fB <- squarem(par=effc/(effc+exp(-effc)),fixptfn=Logit_FGEM,
+           objfn=Logit_log_lik,x=as.matrix(testmat),B=effc,control=list(trace=T))
+bB  <- squarem(par=effc/(effc+exp(-effc)),fixptfn=Logit_FGEM,
+           objfn=Logit_log_lik,x=as.matrix(testmat),B=effc,control=list(trace=T))
+
+frBetas <- apply(as.matrix(testmat),2,function(x){
+  fB <- squarem(par=effc/(effc+exp(-effc)),fixptfn=Logit_FGEM,
+           objfn=Logit_log_lik,x=x,B=effc,control=list(trace=T))
+  fp <- fB$par[,1]
+  fBeta <- coefficients(glm(fp~as.matrix(x),family=quasibinomial(link="logit")))
+  return(fBeta[-1])
+})
+
+bBetas <- apply(as.matrix(testmat),2,function(x){
+  fB <- squarem(par=effc/(effc+exp(-effc)),fixptfn=Logit_FGEM,
+           objfn=Logit_log_lik,x=x,B=effc,control=list(trace=T))
+  fp <- fB$par[,1]
+  fBeta <- coefficients(glm(fp~as.matrix(x),family=quasibinomial(link="logit")))
+  return(fBeta[-1])
+})
+
+hist(rbeta(1000,shape1=16,shape2 = 24))
+
+head(percent_rank(effc))
+npar <- qbeta(percent_rank(effc),shape1 = 16,shape2 = 24)
+
+bB  <- squarem(par=npar,fixptfn=Logit_FGEM,
+           objfn=Logit_log_lik,x=as.matrix(testmat),B=effc,control=list(trace=T))
+
+plot(bp,pr)
+
+
+bp <- bB$par[,1]
+
+bBeta <- coefficients(bayesglm(bp~as.matrix(testmat),family=quasibinomial(link="logit")))
+plot(bBeta[-1],Betas)
+cor(bBeta[-c(1,which.min(bBeta))],Betas[-which.min(bBeta)])
+boxplot(fBeta[-1]~caus)
+plot(fBeta[-1],Betas)
+table(round(fp,0),caus)
+effc/(effc+exp(-effc))
+head(fB)
+
+par <- effc/effc+exp(-effc)
+
+
+
+
