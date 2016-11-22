@@ -1,1 +1,4 @@
-/Data/*
+.Rproj.user
+.RDS
+*.pdf
+*.pptx
