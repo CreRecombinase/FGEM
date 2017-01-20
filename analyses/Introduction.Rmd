@@ -1,0 +1,37 @@
+---
+title: "FGEM vignette"
+author: "Nicholas Knoblauch"
+date: "September 30, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## FGEM Data
+
+The Bayes Factors file is:
+```{r loaddata}
+library(FGEM)
+library(readr)
+library(dplyr)
+datafile <- "~/Dropbox/BayesianDA/FGEM_Data/TADA_ASC_SSC_results_Dec23.csv"
+datadf <- read.table(datafile,header=T,sep=",",stringsAsFactors = F)
+datadf <- dplyr::select(datadf,Gene,BF)
+saveRDS(datadf,"~/Dropbox/BayesianDA/FGEM_Data/TADA.RDS")
+genes <- datadf$Gene
+
+
+
+```
+
+The next step is to load the gene ontology dataframe (using the gene list obtained above)
+We'll start with the "Biological Processes" type of GO term
+```{r genGOmat}
+library(dplyr)
+MFGOdf <- GO2df(genes,terms = "MF")
+BPGOdf  <- GO2df(genes,terms="BP") 
+GOdf <- bind_rows(MFGOdf,BPGOdf)
+```
+
