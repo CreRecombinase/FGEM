@@ -75,7 +75,7 @@ cfeat_df <- function(annotation_df,datadf){
   if(all(annotation_df$isBin)){
     mingenes <-distinct(annotation_df,Gene)
   }
-  annotation_df <- annotation_df %>% inner_join(mingenes,by="Gene") %>% select(-one_of(c("feat_ind","nfeat","isBin","ngenes"))) %>% spread(feature,value,fill = 0)
+  annotation_df <- annotation_df %>% inner_join(mingenes,by="Gene") %>% select(-one_of(c("isBin","ngenes"))) %>% spread(feature,value,fill = 0)
   datadf <- select(datadf,Gene,BF)
   full_feat <- inner_join(datadf,annotation_df,by="Gene")
   return(full_feat)
@@ -134,6 +134,34 @@ anno2mat <- function(full_feat){
   return(feat_mat)
 }
 
+FGEM_df <- function(fBeta=NULL,feat_df,prior_mean=0.02,null_features="Intercept"){
+  BF <- unlist(select(feat_df,BF))
+  
+  tmu <-(prior_mean*BF)/((prior_mean*BF)+(1-prior_mean))
+
+  if(any(!null_features %in% colnames(feat_df))){
+    warning("Some (or all) of null_features not found in feat_df, creating Intercept column\n ")
+    feat_df <- mutate(feat_df,Intercept=1)
+    null_features <- "Intercept"
+  }
+  data_mat <- data.matrix(select(feat_df,-Gene,-BF))
+  if(sum(is.na(data_mat))==nrow(data_mat)){
+    data_mat[is.na(data_mat)] <- 1
+  }
+
+  if(is.null(fBeta)){
+    fBeta <- coefficients(glm(tmu~data_mat+0,family=quasibinomial(link="logit")))    
+  }
+  
+  while(any(is.na(fBeta))){
+    cat("Removing NA Feature,",sum(is.na(fBeta))," still NA\n")
+    data_mat <- data_mat[,!is.na(fBeta)[-1]]
+    fBeta <- coefficients(glm(tmu~data_mat+0,family=quasibinomial(link="logit")))
+  }
+  ret <- FGEM(fBeta = fBeta,feat_mat=data_mat,BF=BF,null_features = null_features)
+  return(ret)
+}
+
 FGEM <-function(fBeta,feat_mat,BF,null_features="Intercept"){
   retdf <- EM_mat(fBeta,feat_mat,BF) %>% mutate(nac=NA)
   retdf <- EM_mat(fBeta[paste0("feat_mat",null_features)],feat_mat[,null_features,drop=F],BF = BF) %>%
@@ -171,11 +199,15 @@ FGEM <-function(fBeta,feat_mat,BF,null_features="Intercept"){
   }
 }
 
+ 
+
+ 
+ 
 sem_df <-function(full_feat,scale=F,prior_mean=0.02){
   require(dplyr)
   require(tidyr)
 
-  feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value)  %>% filter(complete.cases(.))
+  feat_mat <-select(full_feat,Gene,feature,value,BF) %>% spread(feature,value) # %>% filter(complete.cases(.))
   Genes <- select(feat_mat,Gene)
   feat_mat <- mutate(Genes,Intercept=1) %>% inner_join(feat_mat) %>% select(-Gene)
 
@@ -187,7 +219,7 @@ sem_df <-function(full_feat,scale=F,prior_mean=0.02){
     feat_mat[is.na(feat_mat)] <- 1
   }
   fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
-
+  
   while(any(is.na(fBeta))){
     feat_mat <- feat_mat[,!is.na(fBeta)[-1]]
     fBeta <- coefficients(glm(tmu~feat_mat+0,family=quasibinomial(link="logit")))
@@ -233,12 +265,17 @@ chisq_comp <- function(full_feat,prior=0.02){
     return(chisq.test(full_feat$value,factor(quantile(full_feat$BF,prior))))
   }
 }
-
+#sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = F)
 gen_model <- function(feat_list,annodf,datadf,scale=F){
-  retdf <- filter(annodf,feature %in% feat_list) %>%
-    group_by(feature) %>%
-    do(cfeat_df(.,datadf)) %>%
-    ungroup() %>%
+  anno_mat <- filter(annodf,feature %in% feat_list)
+  n_annomat <- spread(anno_mat,feature,value,fill=NA)
+  inp_df <- anno_mat%>% group_by(feature) %>% do(cfeat_df(.,datadf)) %>%
+    
+  ungroup() 
+    retdf <- filter(annodf,feature %in% feat_list) %>%
+  group_by(feature) %>%
+  do(cfeat_df(.,datadf)) %>%
+  ungroup() %>%
     do(sem_df(.,scale = scale))
   return(retdf)
 }
