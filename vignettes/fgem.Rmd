@@ -50,13 +50,25 @@ The three main user-facing functions for `FGEM` are the functions `FGEM_df`, `ge
 
 `FGEM_df` returns a dataframe that has, for each annotation, it's name (taken from the columns of `feat_df`)
 
+## `gen_prior` and `gen_posterior`
+
+`gen_prior` both take 2 arguments
+
+- `feat_df`: same as `FGEM_df` (`gen_prior` does not require that `feat_df` have a `BF` column)
+- `fgem_result_df` the output from `FGEM_df`
+
+
+
+
 # Examples
 The package comes with an example list of Bayes Factors (`BFdata`)  as well as example continuous annotations in the form of ExAC conservation scores (`exacdf`), and binary annotations in the form of Biological Process Gene Ontoloy membership (`BPGOdf`).
 
 
 ```{r}
+library(FGEM)
 library(dplyr)
 library(tidyr)
+data("BFdata")
 data("BPGOdf")
 BFdata <- select(BFdata,Gene,BF)
 head(BFdata)
@@ -84,12 +96,80 @@ lof_df <- filter(exacdf,feature=="lof_z") %>%
 
 result_lof <- FGEM_df(lof_df)
 
-unnest(result_lof)
+```
+`FGEM_df` returns a one row dataframe with a summary  of the fit
+
+```{r}
+result_lof
+```
+
+To get the values of `Beta` for each feature:
+```{r}
+select(result_lof,data) %>% unnest()
+```
+
+
+To get the prior and posterior from the model 
+
+```{r}
+result_lof <- gen_prior(lof_df,result_lof) %>% inner_join(gen_posterior(lof_df,result_lof))
+arrange(result_lof,posterior) %>% head()
+```
+
+## Multiple feature analysis
+
+Let's look at `lof_z`,`mis_z`,`pLI`, and 5 random GO terms
+
+
+```{r}
+exac_features <-data_frame(feature=c("lof_z","mis_z","pLI"))
+exac_sub_df <- semi_join(exacdf,exac_features) %>% 
+  spread(feature,value) %>% 
+  select(-class) %>% 
+  inner_join(BFdata)
+
+GO_features <- distinct(BPGOdf,feature) %>% sample_n(5)
+feature_df <- semi_join(BPGOdf,GO_features) %>% 
+  spread(feature,value,fill=0) %>% 
+  select(-class) %>% 
+  right_join(exac_sub_df) %>% 
+  mutate_all(function(x)ifelse(is.na(x),0,x))
+
+fit_df <- FGEM_df(feature_df)
+
+
+result_df  <- gen_prior(feature_df,fit_df) %>% inner_join(gen_posterior(feature_df,fit_df))
+arrange(result_df,posterior) %>% head()
+```
+
+
+
+## Competetive null hypothesis
+
+Let's add gene size (`bp`) as a feature, but we'll also add it to the null hypothesis
+
+```{r}
+exac_features <-data_frame(feature=c("lof_z","mis_z","pLI","bp"))
+
+exac_sub_df <- semi_join(exacdf,exac_features) %>% 
+  spread(feature,value) %>% 
+  select(-class) %>% 
+  inner_join(BFdata)
+
+GO_features <- distinct(BPGOdf,feature) %>% sample_n(5)
+feature_df <- semi_join(BPGOdf,GO_features) %>% 
+  spread(feature,value,fill=0) %>% 
+  select(-class) %>% 
+  right_join(exac_sub_df) %>% 
+  mutate_all(function(x)ifelse(is.na(x),0,x))
+
+fit_df <- FGEM_df(feature_df,null_features = c("bp","Intercept"))
+
+result_df  <- gen_prior(feature_df,fit_df) %>% inner_join(gen_posterior(feature_df,fit_df))
+arrange(result_df,posterior) %>% head()
 
 
 ```
-
-## 
 
 
 

@@ -2,3 +2,4 @@
 .RDS
 *.pdf
 *.pptx
+inst/doc
