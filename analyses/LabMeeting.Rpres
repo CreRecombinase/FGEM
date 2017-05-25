@@ -1,0 +1,72 @@
+LabMeeting
+========================================================
+author: Nicholas Knoblauch
+date: 10/10/2016
+autosize: true
+
+Features
+========================================================
+
+-Gene Ontology
+  - 5898 features
+-ExAC
+  - 19 features
+-Brainspan Expression
+  - 32 features (16 regions x Sex, averaged over developmental stages)
+
+
+Since last time
+========================================================
+
+  -Fixed a bug wherein the likelihood ratio was computed incorrectly
+  -Added new features (more ExAC)
+
+Significant Features
+========================================================
+
+```{r,echo=FALSE}
+library(dplyr)
+afgemres <- dir("~/Dropbox/BayesianDA/FGEM_Data/FGEM_res/",full.names = T)
+fgr <- bind_rows(lapply(afgemres,readRDS)) %>% distinct(feature,.keep_all=T) %>% filter(grepl("GO:",x = feature)) %>%mutate(class="GO")
+full_feat <- readRDS("~/Dropbox/BayesianDA/FGEM_Data/Exac_res.RDS") %>% ungroup() %>% mutate(class="ExAC")
+exp_feat <- readRDS("~/Dropbox/BayesianDA/FGEM_Data/Expression_sex_res.RDS") %>% mutate(class="Expression")
+nll <- 188.1772
+fgr <- mutate(fgr,NullLogLik=nll) %>% mutate(Chisq=-2*(NullLogLik-LogLik),
+                 pval=pchisq(Chisq,df=1,lower.tail = F)) %>% arrange(pval)
+fgr <- bind_rows(full_feat,fgr,exp_feat)
+ngr <- group_by(fgr,class) %>% distinct(feature,.keep_all=T) %>% mutate(bh.p=p.adjust(pval,method = "fdr")) %>% ungroup() %>% arrange(bh.p)
+ngr <- select(ngr,-LogLik,-iter,-fpevals,-objfevals,-convergence,-NullLogLik)
+results <- ngr
+head(data.frame(ngr))
+```
+
+```{r}
+group_by(results,class) %>% summarise(n_sig=sum(bh.p<0.05))
+
+```
+
+Overall Model
+========================================================
+
+Jointly estimate the prior, using significant features
+
+```{r, echo=FALSE}
+library(dplyr)
+library(FGEM)
+library(ggplot2)
+sub_all_anno_df<- readRDS("~/Dropbox/BayesianDA/FGEM_Data/all_annotations.RDS")
+full_feat <- readRDS("~/Dropbox/BayesianDA/FGEM_Data/Exac_res.RDS") %>% ungroup() %>% mutate(class="ExAC") %>% mutate(bh.p=p.adjust(pval,method="fdr"))
+exac_features <- filter(sub_all_anno_df,class=="ExAC") %>% semi_join(filter(full_feat,bh.p<0.05),by="feature")
+full_features <- group_by(exac_features,feature) %>% do(cfeat_df(.,datadf)) %>% ungroup
+full_model <- sem_df(full_features)
+full_beta <-c(full_model$Intercept[1],full_model$Beta)
+full_mat <- gen_data_matrix(full_features)
+full_B <- distinct(full_features,Gene,BF)
+BFdf <- as_data_frame(full_mat) %>% mutate(Gene=rownames(full_mat)) %>% inner_join(full_B)
+BFdf <- mutate(BFdf,prior= c(gen_p(full_beta,full_mat)),post=c(gen_u(full_beta,full_mat,BF)))
+ggplot(BFdf)+geom_point(aes(x=log10(BF),y=log10(prior)))+ggtitle("")
+ggplot(BFdf)+geom_point(aes(x=log10(BF),y=log10(post)))
+hist(c(log10(BF),y=log10(prior)))
+
+
+```
