@@ -4,6 +4,7 @@ output: html_notebook
 ---
 
 ```{r genanno}
+library(dplyr)
 hapinsf <- "~/Dropbox/BayesianDA/FGEM_Data/Huang_Plosgen_haploinsufficiency_score_by_gene.txt"
 hapdf <- read.table(hapinsf) %>% dplyr::rename(Gene=V1,value=V2) %>% dplyr::mutate(feature="HapInsuff",class="HapInsuff")
 ```
@@ -11,19 +12,18 @@ hapdf <- read.table(hapinsf) %>% dplyr::rename(Gene=V1,value=V2) %>% dplyr::muta
 We can also use continuous features.  As an example, let's use ExAC conservation, and brain gene expression.
 
 ```{r ExAC}
-
+library(FGEM)
 
 expf <- "~/Dropbox/BayesianDA/FGEM_Data/BrainSpanSexVar.RDS"
 expmat <- readRDS(expf)
 expdf <- exp2df(expmat)
-all_anno_df <- bind_rows(exacdf,hapdf,GOdf,expdf) 
+all_anno_df <- bind_rows(exacdf,hapdf) 
 all_anno_df <-distinct(all_anno_df,feature) %>% mutate(feat_ind=1:n()) %>% inner_join(all_anno_df)
 
 max(all_anno_df$feat_ind)
 saveRDS(all_anno_df,"~/Dropbox/BayesianDA/FGEM_Data/all_annotations.RDS")
 saveRDS(sub_all_anno_df,"~/Dropbox/BayesianDA/FGEM_Data/sub_annotations.RDS")
  
-# full_feat <- group_by(,feature) %>% do(cfeat_df(.,datadf,impute=F))
 
 
 ```
@@ -61,9 +61,11 @@ anno_df <- bind_rows(exacdf,BPGOdf)
 
 sig_anno <- inner_join(sig_rep,anno_df)
 
+nsig_anno <- select(sig_anno,feature,Gene,value)
+feat_df <- spread(nsig_anno,feature,value,fill = 0) %>% inner_join(select(datadf,Gene,BF))
+
 sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = T)
 sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = F)
-
 
 sfinal_posterior <- posterior_results(sfinal_model,odatadf,anno_df)
 
