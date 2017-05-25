@@ -4,9 +4,7 @@ Title: R package for Functional Genomics using Expectation Maximization (FGEM)
 Version: 0.1.0
 Author: Nicholas Knoblauch
 Maintainer: Nicholas Knoblauch <nwknoblauch@gmail.com>
-Description: Given a list of gene-level bayes factors and a series of annotations about those genes, 
-FGEM simultaneously calculates a posterior probability of genes being causal, and estimates the effect size
-of the annotations.
+Description: Given a list of gene-level bayes factors and a series of annotations about those genes, FGEM simultaneously calculates a posterior probability of genes being causal, and estimates the effect size of the annotations.
 License: GPL (>= 2)
 LazyData: TRUE
 Imports:
