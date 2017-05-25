@@ -1,0 +1,276 @@
+% Created 2016-04-21 Thu 16:37
+\documentclass[bigger]{beamer}
+\usetheme{UnofficialUChicago}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fixltx2e}
+\usepackage{graphicx}
+\usepackage{bm}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{svg}
+\usepackage{wrapfig}
+\usepackage{soul}
+\usepackage{textcomp}
+\usepackage{marvosym}
+\usepackage{wasysym}
+\usepackage{latexsym}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{bayesnet}
+\usetikzlibrary{matrix}
+\tolerance=1000
+\newcommand\independent{\protect\mathpalette{\protect\independenT}{\perp}}
+\def\independenT#1#2{\mathrel{\rlap{$#1#2$}\mkern2mu{#1#2}}}
+\providecommand{\alert}[1]{\textbf{#1}}
+
+\title{Complex Trait Mapping With Functional Genomics Datasets}
+\subtitle{Qualifying Exam}
+\author{Nicholas Knoblauch}
+\date{\today}
+\hypersetup{
+  pdfkeywords={beamer org orgmode},
+  pdfsubject={Example of using org to create presentations using the beamer exporter},
+  pdfcreator={Emacs Org-mode version 7.9.3f}}
+\AtBeginSection[]{
+  \begin{frame}
+  \vfill
+  \centering
+  \begin{beamercolorbox}[sep=8pt,center,shadow=true,rounded=true]{title}
+    \usebeamerfont{title}\insertsectionhead\par%
+  \end{beamercolorbox}
+  \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}
+  \frametitle{Outline}
+  \setcounter{tocdepth}{2}
+  \tableofcontents
+\end{frame}
+ 
+\section{Introduction}
+  
+\begin{frame}{Challenges of Trait Mapping}
+\begin{itemize}
+\item  The path from genotype to phenotype is treacherous.
+  \pause
+  \begin{itemize}
+  \item Genetic signal is sparse.
+    \pause
+  \item Associations are often spurious.
+    \pause
+  \item Interpretation is difficult (and intervention, even more so).
+  \end{itemize}
+    \pause
+\item  There are markers on the path.
+  \pause
+  \begin{itemize}
+  \item The genome is annotated.
+    \pause
+  \item Complex traits arise from intermediate phenotypes.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Biological Context}
+  In trying to understand the biology of a disease, we are rarely starting from zero.
+  Phenotypes are often associated with:
+  \begin{itemize}
+  \item A particular tissue (Brain, muscle, immune etc)
+  \item A particular biological pathway (cell signaling, metabolism etc)
+  \item A particular inheritance pattern (de-novo, mendelian dominant/recessive, complex etc)
+  \item A particular age of onset (congenital, developmental, etc.)
+  \item A particular population
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Aims}
+  How can we better take advantage of biological context when mapping the  path from genotype to phenotype?
+  \begin{itemize}
+  \item Gene annotation
+    \begin{itemize}
+    \item What  are the shared properties of Neuropsychiatric disease genes?
+    \end{itemize}
+      \pause
+    % \item Copy Number Variation
+    %   \begin{itemize}
+    %   \item Use partially overlapping CNV to distinguish causal from non-causal genes.
+    %   \end{itemize}
+\end{frame}
+
+\section{Gene Prioritization Using Genomic Annotation}
+
+\subsection{Background}
+
+\begin{frame}{Genetic Mapping}
+  Trait mapping usually proceeds in two steps:
+  \begin{enumerate}
+  \item Find the variant(s) correlated with trait of interest.
+    \begin{itemize}
+    \item In the case of rare variants, summarize the variants within a gene.
+    \end{itemize}
+      \pause
+  \item Find the properties common to the significant results to better understand the biological mechanism.
+  \end{enumerate}
+    \pause
+\begin{itemize}
+\item If we knew all the ``true'' causal genes, finding the ``true'' relevant properties is much easier
+  \pause
+\item If we knew all the ``true'' relevant properties, finding the causal genes is much easier
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Aim}
+  Combine independent, gene-level genetic evidence with preexisting biological knowledge in the form of genic and genomic annotation to identify causal genes and enriched pathways.
+  \begin{itemize}
+  \item Identify the properties of genes most likely to be held by causal genes
+  \item Reweigh genetic evidence based on those properties.
+  \end{itemize}
+\end{frame}
+
+\subsection{Method}
+
+\begin{frame}{Functionally Prioritizing Genes with Expectation Maximization}
+ ``One person's vicious circle is another person's successive approximation procedure'' -- Cosma Shalizi\\
+  \begin{enumerate}
+  \item Assign a probability of causality to each gene based on genetic evidence.
+    \begin{itemize}
+    \item Gene-based Bayes Factor
+    \end{itemize}
+  \item Construct a model predicting probability of causality using one or multiple features.
+  \item Go back to step 1, but this time incorporate the output of the model as a prior.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Functional Prioritization of Genes with Expectation Maximization}
+  Let $Z_i=1$ indicate that a gene is causal.\\
+  \[B_i=\frac{P(x_i|Z_i=1)}{P(x_i|Z_i=0)}\]
+  For gene $i$: $\text{logit}(P(Z_i=1|\beta)) = A_i\beta=\log(\frac{\pi_i(\beta)}{1-\pi_i(\beta)})$\\
+  \pause
+  \[P(x|\pi(\beta)) =\prod_i [ \pi_i(\beta)P(x_i|Z_i=1)+(1-\pi_i(\beta))P(x_i|Z_i=0)]\]
+  \[P(x|\pi(\beta)) \propto \prod_i [\pi_i(\beta)B_i+(1-\pi_i(\beta))]\]
+  \pause
+  What $\beta$ best explains the data?
+\end{frame}
+
+\begin{frame}{Functionally Priortization of Genes with Expectation Maximization}
+  The expectation of $Z$ given our current guess for $\beta$,($\beta^{(t)}$) is  \[\mu_i=P(Z_i=1|x_i,\beta^{(t)})=\frac{\pi_i(\beta)B_i}{\pi_i(\beta^{(t)})B_i+(1-\pi_i(\beta^{(t)}))}\]
+  \pause
+  The next guess of $\beta$, $\beta^{(t+1)}$ is found by finding the $\beta$ that maximizes:
+  \[\sum_i[\mu_i(\log(\pi_i(\beta))+B_i)+(1-\mu_i)\log(1-\pi_i(\beta))]\]
+  Existing tools for computing proportional logistic regression can be used to find $\beta^{(t+1)}$ 
+\end{frame}
+
+\begin{frame}{Method Summary}
+  \begin{enumerate}
+  \item $\bm{\mu}^{(t)}$ using $\bm{\beta}^{(t-1)}$ and Bayes Factors
+  \item  $\bm{\beta}^{(t)}$ using $\bm{\mu}^{(t)}$
+  \end{enumerate}
+  Rinse and repeat until convergence.
+\end{frame}
+  
+\subsection{Application to Autism Spectrum Disorder}
+\begin{frame}{Annotations}
+  \begin{columns}
+    \begin{column}{0.7\textwidth}
+      \begin{itemize}
+      \item  Regulatory
+        \begin{itemize}
+        \item Developmental brain (stage and region) specific expression summaries (mean, variance, etc)
+        \end{itemize}  
+      \item Ontological
+        \begin{itemize}
+        \item Gene Ontology
+        \end{itemize}
+      \item Evolutionary
+        \begin{itemize}
+        \item ExAC missense Z-score
+        \item Rate of evolution along catarrhine, primate, and mammalian lineages(phyloP).
+        \end{itemize}
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.3\textwidth}
+      \includegraphics[width=0.5\textwidth]{graphics/Brainspan} \\
+      \includegraphics[width=0.5\textwidth]{graphics/ExacCov} \\
+      \includegraphics[width=0.5\textwidth]{graphics/GeneOntology} \\
+      \includegraphics[width=0.5\textwidth]{graphics/Phylop} \\
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Approach}
+  \begin{enumerate}
+  \item Use gene-level Bayes Factors from TADA (641 whole-exome trios)
+  \item Analyze each feature individually (few thousand in total)
+  \item Assess the significance of feature with likelihood ratio test (vs $\beta=0$)
+  \item Jointly analyze significant features to construct final model
+  \item Compare Bayes Factors to posterior probability in the final model, and compare results to previous findings. 
+  \item Distribute as R package 
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Preliminary Results}
+  \begin{tabular}{ |p{5cm}||p{1cm}|p{2cm}|p{2.5cm}|  }
+ \hline
+ \multicolumn{4}{|c|}{Significant Features} \\
+ \hline
+ Feature& $\hat{\beta}$ &$p$-value& BH-Adjusted $p$ (5,945 tests)\\
+ \hline
+ExAC missense Z & 0.60 & 1.5$e^{-8}$ & 9.2$e^{-5}$ \\
+\hline
+ Canonical Wnt signaling pathway (GO)   & 2.9    &8.4$e^{-6}$& 0.018\\
+\hline
+ Chromatin Organization (GO) &2.42 & 1.95$e^{-5}$ &  0.029\\
+\hline
+ Positive regulation of excitatory postsynaptic potential (GO)&4.19 & 2.80$e^{-5}$ &  0.033\\
+ \hline
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Preliminary results}
+\begin{figure}
+
+  \includegraphics[width=0.6\textwidth]{graphics/PosteriorBF}
+\end{figure}
+\end{frame}
+
+\subsection{Complications and Alternative Strategies}
+\begin{frame}{Issues}
+  \begin{itemize}
+  \item Collinearity becomes an issue with an increasing number of features
+    \begin{itemize}
+    \item Especially problematic for GO terms 
+    \end{itemize}
+  \item Variable selection
+  \item Additivity of annotations
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Alternative Strategies}
+  Put a (sparse) prior on $\beta$
+  \begin{itemize}
+  \item Pros:
+    \begin{itemize}
+    \item Collinearity
+    \item Variable selection
+    \end{itemize}
+  \item Cons:
+    \begin{itemize}    
+    \item How to deal with scales of features?
+    \item Different priors for different types of annotations?
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+    
+
+\end{document}
