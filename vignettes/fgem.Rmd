@@ -1,0 +1,95 @@
+---
+title: "FGEM usage"
+author: "Nicholas Knoblauch"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+# Introduction
+
+Functional Genomics by Expectation Maximization (FGEM) takes a list of gene-level bayes factors and gene-level annotations those genes, and returns the posterior probability for the genes and effect sizes for the  annotations. For more info on the FGEM statistical model, read on.  For more info on FGEM the R package, skip to the "usage" section.
+
+# Model
+
+###Data
+  For each of the $I$ genes being tested $B_i$ is the gene-level Bayes Factor from an association study for the trait of interest. For each of the $I$ genes being tested we also have $J$ functional annotations.  These annotations can be a mix of almost any type of data.  They could be binary data (e.g presence of absence of a particular GO term), count data (e.g number of exons), or continuous data (e.g level of conservation across mammals).  These annotations make up the matrix $A$, which is $IxJ$.  
+  
+###Model
+  For each gene, $Z_i=1$ indicates that gene $i$ is involved in the trait of interest, and $Z_i=0$ indicates that is not.  If we knew $Z_i$ we could use logistic regression to learn the importance of each annotation in the trait of interest:
+  $$logit(P(Z_i=1))=A_i\beta$$
+
+However, we do not know $Z_i$.  We can instead use Empirical Bayes.  If we rewrite our bayes factor as the probability of observing the genotype data given the gene is causal divided by the probability of observing the genotype data given that the gene is not causal, then we can write the following likelihood function.
+
+$$ P(x|\beta)=\prod_iP(x_i|\beta)=\prod_i [\pi_i(\beta)P(x_i|Z_i=1)+(1-\pi_i(\beta))P(x_i|Z_i=0)]$$
+
+Remembering the definition of the Bayes factor from, this is equivalent to 
+
+$$P(x|\beta) \propto \prod_i[\pi_i(\beta)B_i+(1-\pi_i(\beta))]$$
+And we can use maximum likelihood here to make estimates for $\beta$
+
+Using Bayes rule, the posterior is 
+$$P(Z_i=1|x)=\frac{P(x|Z_i=1)P(Z_i=1)}{P(x)}=\frac{\pi_i(\beta)B_i}{\pi_i(\beta)B_i+(1-\pi_i(\beta))}$$
+
+
+# Usage
+
+The three main user-facing functions for `FGEM` are the functions `FGEM_df`, `gen_prior` and `gen_posterior`
+
+## `FGEM_df`
+
+`FGEM_df` takes these parameters:
+
+- `feat_df`:  A dataframe with data.  `feat_df` must have a column called `BF` specifying bayes factors. Any additional columns are treated as  annotations.
+- `prior_mean`: A scalar between 0 and 1 specifying the starting prior probability (this is for initializing the EM algorithm). If unspecified, it defaults to 0.2.
+- `null_features`:  This is a character vector specifying which features should be included in the null model. The default is to only include an intercept term.  Note that if there is no column named `Intercept`, and `null_features` is not specified (or the default is used), an intercept feature is added.
+- `Beta0`: A vector specifying starting guesses for effect sizes of annotations.   In almost all cases the default value (`NULL`) should be kept
+
+`FGEM_df` returns a dataframe that has, for each annotation, it's name (taken from the columns of `feat_df`)
+
+# Examples
+The package comes with an example list of Bayes Factors (`BFdata`)  as well as example continuous annotations in the form of ExAC conservation scores (`exacdf`), and binary annotations in the form of Biological Process Gene Ontoloy membership (`BPGOdf`).
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+data("BPGOdf")
+BFdata <- select(BFdata,Gene,BF)
+head(BFdata)
+```
+
+```{r}
+data("exacdf")
+head(exacdf)
+```
+
+```{r}
+data("BPGOdf")
+head(BPGOdf)
+```
+
+## Single feature analysis
+
+Let's look at the effect of `lof_z` from `ExAC`
+
+```{r}
+lof_df <- filter(exacdf,feature=="lof_z") %>% 
+  spread(feature,value) %>% 
+  select(-class) %>% 
+  inner_join(BFdata)
+
+result_lof <- FGEM_df(lof_df)
+
+unnest(result_lof)
+
+
+```
+
+## 
+
+
+

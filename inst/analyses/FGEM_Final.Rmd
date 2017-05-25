@@ -62,8 +62,12 @@ anno_df <- bind_rows(exacdf,BPGOdf)
 sig_anno <- inner_join(sig_rep,anno_df)
 
 nsig_anno <- select(sig_anno,feature,Gene,value)
+datadf <- BFdata
 feat_df <- spread(nsig_anno,feature,value,fill = 0) %>% inner_join(select(datadf,Gene,BF))
 
+tfeat_df <- select(feat_df,-starts_with("GO")) %>% select(bp,mu_mis,BF,Gene)
+
+my_res <- FGEM_df(tfeat_df)
 sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = T)
 sfinal_model <- gen_model(feat_list = unique(sig_anno$feature),annodf = sig_anno,datadf = datadf,scale = F)
 

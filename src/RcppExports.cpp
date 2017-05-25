@@ -6,19 +6,8 @@
 
 using namespace Rcpp;
 
-// timesTwo
-NumericVector timesTwo(NumericVector x);
-RcppExport SEXP FGEM_timesTwo(SEXP xSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type x(xSEXP);
-    rcpp_result_gen = Rcpp::wrap(timesTwo(x));
-    return rcpp_result_gen;
-END_RCPP
-}
 // FGEM_Logit_log_lik_cpp
-NumericVector FGEM_Logit_log_lik_cpp(const arma::vec& Beta, const arma::mat& x, const arma::vec B);
+double FGEM_Logit_log_lik_cpp(const arma::vec& Beta, const arma::mat& x, const arma::vec B);
 RcppExport SEXP FGEM_FGEM_Logit_log_lik_cpp(SEXP BetaSEXP, SEXP xSEXP, SEXP BSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
