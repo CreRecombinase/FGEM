@@ -21,7 +21,7 @@ double FGEM_Logit_log_lik_cpp(const arma::vec &Beta, const arma::mat &x, const a
 
 //  arma::vec uvec = (pvec%B)/((pvec%B)+(1-pvec));
   // Rcpp::Rcout<<"uvec:"<<uvec<<std::endl;
-  return(-arma::sum(log(pvec%B+(1-pvec))));
+  return(arma::sum(log(pvec%B+(1-pvec))));
 }
 
 

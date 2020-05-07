@@ -8,7 +8,7 @@ using namespace Rcpp;
 
 // FGEM_Logit_log_lik_cpp
 double FGEM_Logit_log_lik_cpp(const arma::vec& Beta, const arma::mat& x, const arma::vec B);
-RcppExport SEXP FGEM_FGEM_Logit_log_lik_cpp(SEXP BetaSEXP, SEXP xSEXP, SEXP BSEXP) {
+RcppExport SEXP _fgem_FGEM_Logit_log_lik_cpp(SEXP BetaSEXP, SEXP xSEXP, SEXP BSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -18,4 +18,14 @@ BEGIN_RCPP
     rcpp_result_gen = Rcpp::wrap(FGEM_Logit_log_lik_cpp(Beta, x, B));
     return rcpp_result_gen;
 END_RCPP
+}
+
+static const R_CallMethodDef CallEntries[] = {
+    {"_fgem_FGEM_Logit_log_lik_cpp", (DL_FUNC) &_fgem_FGEM_Logit_log_lik_cpp, 3},
+    {NULL, NULL, 0}
+};
+
+RcppExport void R_init_fgem(DllInfo *dll) {
+    R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
+    R_useDynamicSymbols(dll, FALSE);
 }

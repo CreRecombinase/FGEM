@@ -1,4 +1,4 @@
-Package: FGEM
+Package: fgem
 Type: Package
 Title: R package for Functional Genomics using Expectation Maximization (FGEM)
 Version: 0.1.0
@@ -8,10 +8,20 @@ Description: Given a list of gene-level bayes factors and a series of annotation
 License: GPL (>= 2)
 LazyData: TRUE
 Imports:
-    Rcpp (>= 0.12.5),RcppArmadillo,dplyr,tidyr,SQUAREM,magrittr
+    Rcpp (>= 0.12.5),
+    RcppArmadillo,
+    dplyr,
+    tidyr,
+    turboEM,
+    magrittr,
+    speedglm,
+    purrr,
+    Matrix
 LinkingTo:
     Rcpp,RcppArmadillo
 Suggests: knitr,
     rmarkdown
 VignetteBuilder: knitr
-RoxygenNote: 6.0.1
+RoxygenNote: 7.1.0
+Depends: 
+    R (>= 2.10)

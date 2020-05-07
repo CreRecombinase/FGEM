@@ -2,6 +2,6 @@
 # Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 FGEM_Logit_log_lik_cpp <- function(Beta, x, B) {
-    .Call('FGEM_FGEM_Logit_log_lik_cpp', PACKAGE = 'FGEM', Beta, x, B)
+    .Call('_fgem_FGEM_Logit_log_lik_cpp', PACKAGE = 'fgem', Beta, x, B)
 }
 

@@ -3,31 +3,38 @@
 \name{FGEM_df}
 \alias{FGEM_df}
 \title{Run FGEM with a dataframe as input
-This version of FGEM takes a single dataframe with 
-both gene-level bayes factors and gene-level features 
-and returns a dataframe with effect size estimates 
+This version of FGEM takes a single dataframe with
+both gene-level bayes factors and gene-level features
+and returns a dataframe with effect size estimates
 for every feature.}
 \usage{
-FGEM_df(feat_df, prior_mean = 0.02, null_features = "Intercept",
-  Beta0 = NULL)
+FGEM_df(
+  feat_df,
+  prior_mean = 0.02,
+  Beta0 = NULL,
+  verbose = FALSE,
+  null_beta = NULL,
+  ...
+)
 }
 \arguments{
 \item{feat_df}{dataframe with data.  `feat_df` must have a column called `BF` specifying bayes factors.
 Any additional columns (besides an optional gene-name column that must be titled `Gene`) are treated as annotations.}
 
-\item{prior_mean}{scalar between 0 and 1 specifying the starting 
-prior probability (this is for initializing the EM algorithm). If unspecified, it defaults to 0.2}
+\item{prior_mean}{scalar between 0 and 1 specifying the starting
+prior probability (this is for initializing the EM algorithm). If unspecified, it defaults to 0.02}
 
-\item{null_features}{this is a character vector specifying which features should be included in the null model.
-The default is to only include an intercept term.}
-
-\item{Beta0}{vector specifying starting guesses for effect sizes of annotations. 
+\item{Beta0}{vector specifying starting guesses for effect sizes of annotations.
 In almost all cases the default (NULL) should be kept}
+
+\item{verbose}{Whether to print debug output}
+
+\item{null_beta}{Instead of refitting the null model, you can pass the precomputed beta for the intercept-only model}
 }
 \description{
 Run FGEM with a dataframe as input
-This version of FGEM takes a single dataframe with 
-both gene-level bayes factors and gene-level features 
-and returns a dataframe with effect size estimates 
+This version of FGEM takes a single dataframe with
+both gene-level bayes factors and gene-level features
+and returns a dataframe with effect size estimates
 for every feature.
 }

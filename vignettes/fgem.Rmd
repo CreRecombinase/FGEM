@@ -65,7 +65,7 @@ The package comes with an example list of Bayes Factors (`BFdata`)  as well as e
 
 
 ```{r}
-library(FGEM)
+library(fgem)
 library(dplyr)
 library(tidyr)
 data("BFdata")
@@ -122,21 +122,21 @@ Let's look at `lof_z`,`mis_z`,`pLI`, and 5 random GO terms
 
 
 ```{r}
-exac_features <-data_frame(feature=c("lof_z","mis_z","pLI"))
+exac_features <-tibble::tibble(feature=c("lof_z","mis_z","pLI"))
 exac_sub_df <- semi_join(exacdf,exac_features) %>% 
   spread(feature,value) %>% 
   select(-class) %>% 
   inner_join(BFdata)
 
 GO_features <- distinct(BPGOdf,feature) %>% sample_n(5)
-feature_df <- semi_join(BPGOdf,GO_features) %>% 
-  spread(feature,value,fill=0) %>% 
-  select(-class) %>% 
-  right_join(exac_sub_df) %>% 
-  mutate_all(function(x)ifelse(is.na(x),0,x))
+feature_df <- semi_join(BPGOdf, GO_features) %>%
+    spread(feature, value, fill = 0) %>%
+    select(-class) %>%
+    right_join(exac_sub_df) %>%
+    mutate_all(function(x) ifelse(is.na(x), 0, x))
 
-fit_df <- FGEM_df(feature_df)
-
+fit_df <- FGEM_df(feature_df, use_squarem = FALSE)
+ofit_df <- FGEM_df(feature_df, use_squarem = TRUE)
 
 result_df  <- gen_prior(feature_df,fit_df) %>% inner_join(gen_posterior(feature_df,fit_df))
 arrange(result_df,posterior) %>% head()
@@ -149,7 +149,7 @@ arrange(result_df,posterior) %>% head()
 Let's add gene size (`bp`) as a feature, but we'll also add it to the null hypothesis
 
 ```{r}
-exac_features <-data_frame(feature=c("lof_z","mis_z","pLI","bp"))
+exac_features <-tibble::tibble(feature=c("lof_z","mis_z","pLI","bp"))
 
 exac_sub_df <- semi_join(exacdf,exac_features) %>% 
   spread(feature,value) %>% 
