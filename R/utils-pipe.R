@@ -9,3 +9,18 @@
 #' @importFrom magrittr %>%
 #' @usage lhs \%>\% rhs
 NULL
+
+
+
+
+#' Default value for NULL
+#'
+#' See \code{rlang::\link[magrittr:op-null-default]{\%||\%}} for details.
+#'
+#' @name %||%
+#' @rdname op-null-default
+#' @keywords internal
+#' @export
+#' @importFrom rlang %||%
+#' @usage lhs \%||\% rhs
+NULL

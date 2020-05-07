@@ -2,20 +2,18 @@
 
 
 FGEM_Logit <- function(Beta, x, B, ctrl = list()) {
-  uvec <- gen_u(Beta, x, B)
-  if(inherits(x,"dgCMatrix")){
-      return(speedglm::speedglm.wfit(
-              y = as.vector(uvec),
-              X = x,
-              family = quasibinomial(link = "logit")
-      )[["coefficients"]])
-  }
-  return(stats::coefficients(stats::glm.fit(
-          x = x,
-          y = uvec,
-          family = quasibinomial(link = "logit"),
-          control = ctrl
-  )))
+    uvec <- gen_u(Beta, x, B)
+    speedglm::speedglm.wfit(
+            y = uvec,
+            X = x,
+            family = stats::quasibinomial(link = "logit")
+    )[["coefficients"]]
+  ## return(stats::coefficients(stats::glm.fit(
+  ##         x = x,
+  ##         y = uvec,
+  ##         family = stats::quasibinomial(link = "logit"),
+  ##         control = ctrl
+  ## )))
 }
 
 ## \if{html}{\out{
@@ -53,7 +51,8 @@ EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"), 
     vmessage <- verbose_message_factory(verbose)
     nobj_f <- obj_factory(feat_mat, BF, verbose = verbose)
     vmessage("finding Beta using: ", paste0(em_methods, collapse = ","))
-
+    cn <- colnames(feat_mat) %||% names(Beta0)
+    stopifnot(!is.null(cn))
     opf <- turboEM::turboem(
             par = Beta0,
             fixptfn = FGEM_Logit,
@@ -64,7 +63,7 @@ EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"), 
             control.run = list(convtype = "objfn", tol = 1e-7),
             B = BF
             )
-    cn <- colnames(feat_mat)
+
     if (!is.null(dim(pars(opf)))){
         best_opf <- which.max(opf$value.objfn)
         objf <- -opf$value.objfn[best_opf]
@@ -97,14 +96,13 @@ FGEM_Logit_log_lik <- function(Beta, x, B) {
 }
 
 gen_p <- function(Beta, x) {
-
     pvec <- 1 / (1 + exp(-(x %*% Beta)))
-    return(pvec)
+    return(as.vector(pvec))
 }
 
 gen_u <- function(Beta, x, B) {
         p <- gen_p(Beta, x)
-        return((p * B) / ((p * B) + (1 - p)))
+        return(as.vector((p * B) / ((p * B) + (1 - p))))
 }
 
 
@@ -143,31 +141,119 @@ pmean <- function(Beta, feat_mat) {
 }
 
 
-fgem_col <- function(col_name,X,
-                     Intercept_col,
-                     tmu,
-                     BF,
-                     null_Beta0,
-                     vmessage=message_factory(FALSE)) {
+fgem_null <- function(BF,prior=0.02, tmu = prior_mean(BF,prior)) {
+    tsp <- Matrix::Matrix(rep(1,length(BF)), nrow = length(BF), ncol = 1)
+    colnames(tsp) <- "Intercept"
+    tbeta0 <- speedglm::speedglm.wfit(
+                            y = as.vector(tmu),
+                            X = tsp,
+                            family = stats::quasibinomial(link = "logit")
+                        )[["coefficients"]]
+    res <- fgem:::EM_mat(tbeta0, tsp, BF)
+    res$data[[1]]$Beta
+}
+
+prior_mean <- function(BF, prior = 0.02) {
+        (prior * BF) / ((prior * BF) + (1 - prior))
+}
+
+
+
+guess_beta0 <- function(X,BF,prior=0.02,tmu = prior_mean(BF,prior)){
+    speedglm::speedglm.wfit(
+                  y = tmu,
+                  X = X,
+                  family = stats::quasibinomial(link = "logit")
+              )[["coefficients"]]
+}
+
+##' @title Run FGEM
+##'
+##'
+##' @param X matrix of gene-level annotations
+##' @param BF vector of gene-level bayes factors
+##' @param prior prior probability a gene is causal (before annotations)
+##' @param tmu precomputed gene-level prior
+##' @param null_beta model to test against for likelihood ratio test
+##' @param verbose whether to use verbose output
+##' @return tibble with fgem results
+##' @export
+fgem <- function(X,
+                 BF,
+                 prior=0.02,
+                 tmu = prior_mean(BF, prior),
+                 null_beta=fgem_null(BF, tmu),
+                 verbose = FALSE) {
+    stopifnot(NROW(X) == length(BF))
+    vmessage <- verbose_message_factory(verbose)
     vmessage("starting feature:", col_name)
-    Xm <- magrittr::set_colnames(cbind(X[, col_name], Intercept_col), c(col_name, "Intercept"))
-    stopifnot(ncol(Xm) == 2)
-    Beta0 <- speedglm::speedglm.wfit(y = as.vector(tmu),
-                                   X = Xm,
-                                   family = quasibinomial(link = "logit"))[["coefficients"]]
+    Beta0 <- guess_beta0(X, BF, prior, tmu)
     vmessage("Beta0", paste0(Beta0, collapse = ","))
     ret_fgem <- FGEM(
             Beta0 = Beta0,
-            feat_mat = Xm,
+            feat_mat = X,
             BF = BF,
-            null_beta = null_Beta0,
-            verbose = FALSE
+            null_beta = null_beta,
+            verbose = verbose
     )
     return(ret_fgem)
 }
 
 
 
+
+##' @title Convert a table-style sparse matrix representation to a sparse matrix
+##'
+##'
+##'
+##' @param rowname_vals vector with the rownames of the values
+##' @param colname_vals vector with the colnames of the values
+##' @param values the values themselves (default is 1.0)
+##' @param total_rownames the universe of rownames, defaults to all the unique rowname_vals
+##' @param total_colnames the universe of colnames, defaults to all the unique colname_vals
+##' @param add_intercept whether to add an intercept term ("Intercept" will be added to total_colnames)
+##' @return a sparse matrix of dim(length(total_rownames),length(total_colnames)) with (at most) length(values)
+##' non-zero values
+##' @export
+trip2sparseMatrix <- function(rowname_vals,
+                              colname_vals,
+                              values = rep(1.0,length(colname_vals)),
+                              total_rownames = unique(rowname_vals),
+                              total_colnames = unique(colname_vals),
+                              add_intercept = TRUE) {
+
+    stopifnot(
+            all.equal(length(rowname_vals), length(colname_vals)),
+            all.equal(length(rowname_vals), length(values))
+        )
+
+    bad_vals <- (!(rowname_vals %in% total_rownames)) | (!(colname_vals %in% total_colnames))
+    if (any(bad_vals)) {
+            warning("rowname_vals and/or colname_vals not found in total_rownames/total_colnames, dropping: ", sum(bad_vals))
+    }
+
+
+    rowname_vals <- rowname_vals[!bad_vals]
+    colname_vals <- colname_vals[!bad_vals]
+    values <- values[!bad_vals]
+
+    if (add_intercept) {
+        total_colnames <- unique(c(total_colnames, "Intercept"))
+        rowname_vals <- c(rowname_vals, total_rownames)
+        colname_vals <- c(colname_vals, rlang::rep_along(total_rownames, "Intercept"))
+        values <- c(values, rlang::rep_along(total_rownames, 1.0))
+    }
+
+    row_id <- purrr::set_names(seq_along(total_rownames), total_rownames)
+    col_id <- purrr::set_names(seq_along(total_colnames), total_colnames)
+
+    Matrix::sparseMatrix(
+            i = row_id[rowname_vals],
+            j = col_id[colname_vals],
+            dims = c(length(total_rownames), length(total_colnames)),
+            x = values, dimnames = list(total_rownames, total_colnames)
+    )
+}
 
 
 
@@ -198,11 +284,12 @@ FGEM_marginal <- function(X,BF,prior_mean = 0.02, verbose = FALSE,parallel=FALSE
     vmessage <- verbose_message_factory(verbose)
     tmu <- (prior_mean * BF) / ((prior_mean * BF) + (1 - prior_mean))
     vmessage("setting null_beta...")
-    sm <- Matrix(rep(1,length(BF)),nrow=length(BF),ncol=1,sparse = TRUE)
-    null_Beta0<- speedglm::speedglm.wfit(y = tmu,
+    sm <- Matrix::Matrix(rep(1,length(BF)),nrow=length(BF),ncol=1,sparse = TRUE)
+    colnames(sm) <- "Intercept"
+    null_Beta0 <- speedglm::speedglm.wfit(y = tmu,
                                          X = sm,
                                          intercept=FALSE,
-                                         family = quasibinomial(link = "logit"))[["coefficients"]]
+                                         family = stats::quasibinomial(link = "logit"))[["coefficients"]]
     null_ret <- EM_mat(null_Beta0,
             sm,
             BF = BF,
@@ -219,7 +306,7 @@ FGEM_marginal <- function(X,BF,prior_mean = 0.02, verbose = FALSE,parallel=FALSE
                 ~ speedglm::speedglm.wfit(
                         y = as.vector(tmu),
                         X = cbind(.x, rep(1, NROW(.x))),
-                        family = quasibinomial(link = "logit")
+                        family = stats::quasibinomial(link = "logit")
                 )[["coefficients"]]
         )
         ret_df <- purrr::pmap_dfr(list(x=Beta0l,
@@ -288,7 +375,7 @@ FGEM_df <- function(feat_df, prior_mean = 0.02, Beta0 = NULL,verbose=FALSE,null_
         vmessage("Settting Beta0...")
         Beta0 <- stats::coefficients(stats::glm(tmu ~ . + 0,
                                          data = data_mat_df,
-                                         family = quasibinomial(link = "logit")))
+                                         family = stats::quasibinomial(link = "logit")))
         vmessage(verbose, "Beta0: ", Beta0)
     }
 
@@ -299,7 +386,7 @@ FGEM_df <- function(feat_df, prior_mean = 0.02, Beta0 = NULL,verbose=FALSE,null_
 
             Beta0 <- stats::coefficients(stats::glm(tmu ~ . + 0,
                     data = data_mat_df,
-                    family = quasibinomial(link = "logit")
+                    family = stats::quasibinomial(link = "logit")
             ))
     }
     data_mat <- data.matrix(dplyr::select(data_mat_df, -tmu))
