@@ -16,7 +16,8 @@ Imports:
     magrittr,
     speedglm,
     purrr,
-    Matrix
+    Matrix,
+    furrr
 LinkingTo:
     Rcpp,RcppArmadillo
 Suggests: knitr,

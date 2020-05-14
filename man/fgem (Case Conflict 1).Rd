@@ -10,6 +10,7 @@ fgem(
   prior = 0.02,
   tmu = prior_mean(BF, prior),
   null_beta = fgem_null(BF, tmu),
+  add_intercept = TRUE,
   verbose = FALSE
 )
 }
@@ -23,6 +24,8 @@ fgem(
 \item{tmu}{precomputed gene-level prior}
 
 \item{null_beta}{model to test against for likelihood ratio test}
+
+\item{add_intercept}{add intercept to X if it isn't there?}
 
 \item{verbose}{whether to use verbose output}
 }
