@@ -10,7 +10,8 @@ trip2sparseMatrix(
   values = rep(1, length(colname_vals)),
   total_rownames = unique(rowname_vals),
   total_colnames = unique(colname_vals),
-  add_intercept = TRUE
+  add_intercept = TRUE,
+  csr = FALSE
 )
 }
 \arguments{

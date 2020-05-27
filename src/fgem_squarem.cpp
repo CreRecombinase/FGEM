@@ -1,3 +1,5 @@
+/*
+
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -489,3 +491,4 @@ double objfn(std::vector<double> par){
     }
     return objvalue;
 };
+*/
