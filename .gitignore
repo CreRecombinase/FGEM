@@ -3,3 +3,7 @@
 *.pdf
 *.pptx
 inst/doc
+src/*\.o
+src/*\.so
+compile_commands.json
+.clangd**

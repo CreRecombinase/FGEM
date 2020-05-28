@@ -15,12 +15,11 @@ inline T FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen
   // arma::vec pvec = 1/(1+arma::exp(-(x*Beta)));
   // Rcpp::Rcout<<"pvec:"<<pvec<<std::endl;
 
-//  arma::vec uvec = (pvec%B)/((pvec%B)+(1-pvec));
+
   const size_t p= Beta.size();
   auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
   return ((pvec.array()*BF)+(1.0-pvec.array())).log().sum()*neg;
-  // Rcpp::Rcout<<"uvec:"<<uvec<<std::endl;
-//  return(arma::sum(log(pvec%B+(1-pvec))));
+
 }
 
 
@@ -39,10 +38,14 @@ inline T FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Ei
 
 template<typename U,int neg=-1>
 struct fgem_lik {
-  const Eigen::Map<U> X;
-  const Eigen::Map<Eigen::ArrayXd> BF;
-  const double prec;
+  Eigen::Map<U> X;
+  Eigen::Map<Eigen::ArrayXd> BF;
+  double prec;
   fgem_lik(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double prec_=0.0): X(X_),BF(BF_),prec(prec_){}
+  void update_X(Eigen::Map<U> &&x){
+    X=x;
+  }
+  
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
@@ -65,6 +68,9 @@ public:
     double fx=0;
     stan::math::gradient(f,x,fx,grad);
     return fx;
+  }
+  void update_X(Eigen::Map<U> &&x){
+    f.update_X(std::forward<Eigen::Map<U>>(x));
   }
   Rcpp::NumericVector grad(SEXP xs) const noexcept{
     auto x =  Rcpp::as<Eigen::Map<Eigen::VectorXd>>(xs);

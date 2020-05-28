@@ -28,6 +28,49 @@ prep_fgem <- function(X, BF, l2) {
 
 
 
+##' @title fit cross-validated FGEM model
+##'
+##'
+##' @param X Feature matrix
+##' @param BF vector of bayes factors
+##' @param alpha alpha (as in glmnet). Alpha  is the (scalar) proportion of
+##' `lambda` applied to l1 penalization, while `1-alpha` is applied to l2
+##' @param lambda vector of shrinkage parameters
+##' @return
+##' @export
+cv_fgem <- function(X,
+                    BF,
+                    alpha = 1,
+                    lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2)){
+
+
+    idf <- tibble::tibble(BF = BF, X)
+    v <- 10
+    cv_X <- rsample::vfold_cv(X)
+    cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
+    tivx <- cv_idf$splits[[1]]
+    furrr::future_imap_dfr(cv_idf$splits, function(tivx,y) {
+        tiv_df <- tibble::as_tibble(tivx)
+        tBF <- tiv_df$BF
+        tX <- tiv_df$X
+        res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
+        tBeta <- coeff_mat(res_d$Beta)
+        civx <- as.data.frame(tivx, data = "assessment")
+        cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = civx$X, B = civx$BF)
+        dplyr::mutate(res_d, cv_lik = cv_lik,cv_i=y)
+    })
+}
+
+
+coeff_mat <- function(Beta_l) {
+        Beta <- simplify2array(purrr::map(Beta_l, "Beta"), higher = TRUE)
+        dimnames(Beta) <- list(Beta_l[[1]]$feature_name, paste0("s", seq_along(Beta_l) - 1))
+        return(Beta)
+}
+
+
+
+
 ##' @title fit fgem using lbfgs
 ##'
 ##'
@@ -178,8 +221,11 @@ FGEM_Logit_log_lik <- function(Beta, x, B) {
         return(sum(log(pvec * B + (1 - pvec))))
 }
 
+
+
 gen_p <- function(Beta, x, log = FALSE) {
-        c(stats::plogis((x %*% Beta[-1]) + Beta[1], log = log))
+
+        stats::plogis((x %*% Beta[-1]) + Beta[1], log = log)
 }
 
 gen_u <- function(Beta, x, B, log=FALSE) {
@@ -253,17 +299,14 @@ pmean <- function(Beta, feat_mat) {
 }
 
 
-fgem_null <- function(BF,prior=0.02, tmu = prior_mean(BF,prior)) {
-    tsp <- matrix(rep(1, length(BF)), nrow = length(BF), ncol = 1)
-    colnames(tsp) <- "Intercept"
-    tbeta0 <- fastglm::fastglmPure(
-                            y = as.vector(tmu),
-                            x = tsp,
-                            family = stats::quasibinomial(link = "logit")
-                        )[["coefficients"]]
-    res <- fgem:::EM_mat(tbeta0, tsp, BF)
-    res$data[[1]]$Beta
+fgem_null <- function(BF, prior = 0.02, tmu = prior_mean(BF, prior)) {
+        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF, lambda = 0)$Beta[[1]]$Beta
 }
+
+fgem_null_lik <- function(BF) {
+        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF, lambda = 0)$lik
+}
+
 
 prior_mean <- function(BF, prior = 0.02, log = FALSE) {
         if (!log) {
@@ -465,10 +508,6 @@ fgem <- function(x,
 }
 
 
-
-
-
-
 ##' @title Convert a table-style sparse matrix representation to a sparse matrix
 ##'
 ##'
@@ -496,10 +535,10 @@ trip2sparseMatrix <- function(rowname_vals,
         )
 
     bad_vals <- (!(rowname_vals %in% total_rownames)) | (!(colname_vals %in% total_colnames))
-    if (any(bad_vals)) {
-        warning("rowname_vals and/or colname_vals not found in total_rownames/total_colnames, dropping: ",
-                sum(bad_vals))
-    }
+    ## if (any(bad_vals)) {
+    ##     warning("rowname_vals and/or colname_vals not found in total_rownames/total_colnames, dropping: ",
+    ##             sum(bad_vals))
+    ## }
 
 
     rowname_vals <- rowname_vals[!bad_vals]
@@ -536,75 +575,46 @@ trip2sparseMatrix <- function(rowname_vals,
 ##' both gene-level bayes factors and gene-level features
 ##' and returns a dataframe with effect size estimates
 ##' for every feature (run as univariate)
-##' @param feat_df dataframe with data. `feat_df`
-##' must have a column called `BF` specifying bayes factors.
-##'   Any additional columns (besides an optional gene-name
-##' column that must be titled `Gene`) are treated as annotations.
-##' @param prior_mean scalar between 0 and 1 specifying the starting
-##' prior probability (this is for initializing the EM algorithm).
-##' If unspecified, it defaults to 0.02
+##' @param X feature matrix (must have column names)
+##' @param BF vector of bayes factors
 ##' @param verbose Whether to print debug output
-##' @param ...
 ##' @export
-FGEM_marginal <- function(X,BF,prior_mean = 0.02, verbose = FALSE,parallel=FALSE, ...) {
-    if(nrow(X) != length(BF)){
-        stopifnot(
-            !is.null(names(BF)),
-            !is.null(rownames(X)),
-            all(names(BF) %in% rownames(X))
-        )
-        X <- X[names(BF),]
-    }
-    vmessage <- verbose_message_factory(verbose)
-    tmu <- (prior_mean * BF) / ((prior_mean * BF) + (1 - prior_mean))
-    vmessage("setting null_beta...")
-    sm <- matrix(rep(1, length(BF)), nrow = length(BF), ncol = 1)
-    colnames(sm) <- "Intercept"
-    null_Beta0 <- fastglm::fastglmPure(y = tmu,
-                                         x = sm,
-                                         family = stats::quasibinomial(link = "logit"))[["coefficients"]]
-    null_ret <- EM_mat(null_Beta0,
-            sm,
-            BF = BF,
-            verbose = verbose
+fgem_marginal <- function(X,BF,prior_mean = 0.02, ...) {
+    null_lik <-fgem_null_lik(BF)
+    results <- marginal_fgem_fit_bfgs(X,BF)
+    Chisq <- -2 * (null_lik - (results$lik))
+    tibble::tibble(
+            pval = stats::pchisq(Chisq, df = 1, lower.tail = F),
+            iter = results$iter,
+            coeff = results$coeff[2, ],
+            Intercept = results$coeff[1, ],
+            feat_sum = results$feat_sum,
+            feature_name = results$feature_name,
+            qval = p.adjust(pval, method = "fdr")
     )
-    nb0 <- null_ret$data[[1]]$Beta
-    if(parallel){
-        Xl <- purrr::map(
-                colnames(X),
-                ~ X[, .x]
-        )
-        Beta0l <- purrr::map(
-                Xl,
-                ~ fastglm::fastglmPure(
-                        y = as.vector(tmu),
-                        x = cbind(.x, rep(1, NROW(.x))),
-                        family = stats::quasibinomial(link = "logit")
-                )[["coefficients"]]
-        )
-        ret_df <- purrr::pmap_dfr(list(x=Beta0l,
-                                       y=Xl,
-                                       z = colnames(X)
-                                       ),
-                                  function(x, y, z, BF, null_beta) {
-                                      FGEM(x, magrittr::set_colnames(cbind(y, rep(1, NROW(y))), c(z, "Intercept")),
-                                           BF = BF, null_beta = null_beta, verbose = FALSE
-                                           )
-                                  },BF = BF, null_beta = null_Beta0)
-        return(ret_df)
-    }
-    else{
-        purrr::map_dfr(colnames(X),
-                fgem_col,
-                X = X,
-                null_Beta0 = nb0,
-                Intercept_col = sm,
-                tmu = tmu,
-                BF = BF,
-                vmessage = vmessage
-                )
-    }
 }
+
+
+
+join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", by = "Gene") {
+
+    ldv <- long_df[[value]]
+    if (is.null(ldv))
+        ldv <- rep(1.0, nrow(long_df))
+
+
+    ixm <- trip2sparseMatrix(
+        rowname_vals = long_df[[by]],
+        colname_vals = long_df[[key]],
+        values = ldv,
+        total_rownames = unique(wide_df[[by]]),
+        total_colnames = unique(long_df[[key]]),
+        add_intercept = FALSE
+    )
+    dplyr::inner_join(wide_df, tibble::as_tibble(ixm, rownames = by), by = by)
+}
+
+
 
 
 

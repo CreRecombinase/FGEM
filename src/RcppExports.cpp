@@ -83,12 +83,12 @@ BEGIN_RCPP
 END_RCPP
 }
 // marginal_fgem_fit_bfgs
-Rcpp::List marginal_fgem_fit_bfgs(SEXP X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const double epsilon, const int max_iter, const bool progress);
+Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const double epsilon, const int max_iter, const bool progress);
 RcppExport SEXP _fgem_marginal_fgem_fit_bfgs(SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP epsilonSEXP, SEXP max_iterSEXP, SEXP progressSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type X(XSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type X(XSEXP);
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
     Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
     Rcpp::traits::input_parameter< const double >::type epsilon(epsilonSEXP);
