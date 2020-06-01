@@ -48,7 +48,7 @@ cv_fgem <- function(X,
     v <- 10
     cv_X <- rsample::vfold_cv(X)
     cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
-    tivx <- cv_idf$splits[[1]]
+    p <- progressr::progressor(along = cv_idf$splits)
     furrr::future_imap_dfr(cv_idf$splits, function(tivx,y) {
         tiv_df <- tibble::as_tibble(tivx)
         tBF <- tiv_df$BF
@@ -57,6 +57,7 @@ cv_fgem <- function(X,
         tBeta <- coeff_mat(res_d$Beta)
         civx <- as.data.frame(tivx, data = "assessment")
         cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = civx$X, B = civx$BF)
+        p(message = sprintf("cv-%d", y))
         dplyr::mutate(res_d, cv_lik = cv_lik,cv_i=y)
     })
 }
@@ -70,6 +71,49 @@ coeff_mat <- function(Beta_l) {
 
 
 
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, ncol(X) + 1), alpha=1,lambda=0,verbose=FALSE) {
+    l <- lambda * NROW(X)
+    l2 <- (1 - alpha) * l
+    l1 <- (alpha) * l
+    tto <- prep_fgem(X, BF, l2)
+    algo <- dplyr::if_else(l1 != 0,
+                           "LBFGS_LINESEARCH_BACKTRACKING",
+                           "LBFGS_LINESEARCH_DEFAULT")
+    pta <- proc.time()
+    lbr <- lbfgs::lbfgs(
+            call_eval = tto$lik,
+            call_grad = tto$grad,
+            environment = tto$env,
+            vars = c(rep(0, ncol(X) + 1)),
+            orthantwise_c = l1,
+            linesearch_algorithm = algo,
+            orthantwise_start = 1,
+            orthantwise_end = ncol(X) + 1,
+            invisible = dplyr::if_else(verbose, 0L, 1L)
+    )
+    lbr$time <- (proc.time() - pta)["elapsed"]
+    lbr$l0n <- sum(lbr$par != 0)
+    lbr$l1n <- sum(abs(lbr$par))
+    lbr$l2n <- sum(lbr$par^2)
+    lbr$lambda <- l
+    lbr$alpha <- alpha
+    return(tibble::tibble_row(
+            Beta = list(tibble::tibble(
+                    Beta = lbr$par,
+                    feature_name = c("Intercept", colnames(X))
+            )),
+            l0n = lbr$l0n,
+            l1n = lbr$l1n,
+            l2n = lbr$l2n,
+            lik = -lbr$value,
+            lambda = l,
+            l1 = l1,
+            l2 = l2,
+            alpha = alpha,
+            time = lbr$time,
+            convergence = lbr$convergence
+    ))
+}
 
 ##' @title fit fgem using lbfgs
 ##'
@@ -95,46 +139,8 @@ fgem_bfgs <- function(X,
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
     reg_resl <- list()
-    for (i in iseq) {
-        l <- lambda[i] * NROW(X)
-        l2 <- (1 - alpha) * l
-        l1 <- (alpha) * l
-        tto <- prep_fgem(X, BF, l2)
-        algo <- dplyr::if_else(l1!=0,"LBFGS_LINESEARCH_BACKTRACKING","LBFGS_LINESEARCH_DEFAULT")
-        pta <- proc.time()
-        lbr <- lbfgs::lbfgs(
-                call_eval = tto$lik,
-                call_grad = tto$grad,
-                environment = tto$env,
-                vars = c(rep(0, ncol(X) + 1)),
-                orthantwise_c = l1,
-                linesearch_algorithm = algo,
-                orthantwise_start = 1,
-                orthantwise_end = ncol(X) + 1,
-                invisible = dplyr::if_else(verbose, 0L, 1L)
-        )
-        lbr$time <- (proc.time() - pta)["elapsed"]
-        lbr$l0n <- sum(lbr$par != 0)
-        lbr$l1n <- sum(abs(lbr$par))
-        lbr$l2n <- sum(lbr$par^2)
-        lbr$lambda <- l
-        lbr$alpha <- alpha
-        reg_resl[[i]] <- tibble::tibble_row(
-                                     Beta = list(tibble::tibble(
-                                                             Beta = lbr$par,
-                                                             feature_name = c("Intercept", colnames(X))
-                                                         )),
-                                     l0n = lbr$l0n,
-                                     l1n = lbr$l1n,
-                                     l2n = lbr$l2n,
-                                     lik = -lbr$value,
-                                     lambda = l,
-                                     l1 = l1,
-                                     l2 = l2,
-                                     alpha = alpha,
-                                     time = lbr$time,
-                                     convergence = lbr$convergence
-                                 )
+    reg_resl <- furrr::future_map(lambda, ~ fgem_elasticnet(X, BF, Beta0, alpha, .x, verbose), .options = furrr::future_options(lazy = TRUE))
+
         if (lbr$l0n == 1) {
                 break
         }
@@ -611,7 +617,7 @@ join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", 
         total_colnames = unique(long_df[[key]]),
         add_intercept = FALSE
     )
-    dplyr::inner_join(wide_df, tibble::as_tibble(ixm, rownames = by), by = by)
+    dplyr::mutate(wide_df, X = ixm)
 }
 
 

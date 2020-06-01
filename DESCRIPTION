@@ -18,7 +18,9 @@ Imports:
     Rcpp (>= 0.12.5),
     RcppEigen,
     tidyr,
-    turboEM
+    turboEM,
+    rsample,
+    progressr
 LinkingTo:
     BH (>= 1.66.0),
     Rcpp (>= 0.12.0),
