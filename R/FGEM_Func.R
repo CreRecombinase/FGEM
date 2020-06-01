@@ -115,6 +115,48 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, ncol(X) + 1), alpha=1,lambda=0,v
     ))
 }
 
+
+##' @title Helper to get resolved futures
+##'
+##'
+##' @param x an object
+##' @return if x inherits Future, it returns
+##' the value of x if it is resolved, or NULL
+##' if is not.  If x is not a Future, it returns
+##' x
+##'
+resolved_or_null <- function(x) {
+        if (inherits(x, "Future")) {
+                if (future::resolved(x)) {
+                        return(future::value(x))
+                } else {
+                        return(NULL)
+                }
+        } else {
+                return(x)
+        }
+}
+
+##' @title Helper to get resolved futures
+##'
+##'
+##' @param x an object
+##' @return if x inherits Future, it returns
+##' the value of x if it is resolved, or itself
+##' if is not.  If x is not a Future, it returns
+##' itself
+partial_resolve <- function(x) {
+        if (inherits(x, "Future")) {
+                if (future::resolved(x)) {
+                        return(future::value(x))
+                } else {
+                        return(x)
+                }
+        } else {
+                return(x)
+        }
+}
+
 ##' @title fit fgem using lbfgs
 ##'
 ##'
@@ -133,19 +175,46 @@ fgem_bfgs <- function(X,
                       Beta0 = rep(0, ncol(X) + 1),
                       verbose = FALSE,
                       alpha = 1,
-                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))),1,2), ...) {
+                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2), ...) {
 
 
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
     reg_resl <- list()
-    reg_resl <- furrr::future_map(lambda, ~ fgem_elasticnet(X, BF, Beta0, alpha, .x, verbose), .options = furrr::future_options(lazy = TRUE))
 
-        if (lbr$l0n == 1) {
-                break
-        }
-    }
-    return(dplyr::bind_rows(reg_resl))
+    reg_resl <- purrr::map(lambda, ~ function(l, X, BF, Beta0, alpha, verbose) {
+            future::future(fgem_elasticnet(X, BF, Beta0, alpha, l, verbose))
+    })
+    names(reg_resl) <- lambda
+
+    ##                                     # wait for
+    ## sub_lambda <- lambda
+    ## while (!all(purrr::map_lgl(reg_resl, future::resolved))) {
+    ##     resolved_rows <- purrr::map(reg_resl, resolved_or_null) %>%
+    ##         purrr::compact()
+    ##     if(length(resolved_rows)>0){
+    ##         min_lambda_l0 <- dplyr::bind_rows(resolved_rows) %>%
+    ##                 dplyr::filter(l0n == 1) %>%
+    ##             dplyr::arrange(lambda) %>%
+    ##             dplyr::pull(lambda)
+    ##         if(length(min_lambda_l0)>0){
+    ##             extra_l0 <- sub_lambda > min_lambda_l0[1]
+    ##             reg_resl <- purrr::map2(reg_resl, extra_l0, function(x, y) {
+    ##                     if (!future::resolved(x) && y) {
+    ##                             return(NULL)
+    ##                     }
+    ##                     return(x)
+    ##             })
+    ##             sub_lambda <- sub_lambda[purrr::map_lgl(reg_resl, ~ !is.null(.x))]
+    ##             reg_resl <- purrr::compact
+
+
+
+    ## }
+    ## if (lbr$l0n == 1) {
+    ##     break
+    ## }
+    return(dplyr::bind_rows(purrr::map(reg_resl, future::value)))
 }
 
 EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"),  ...) {

@@ -1,6 +1,6 @@
 #pragma once
-#include <RcppEigen.h>
 #include <stan/math.hpp>
+#include <RcppEigen.h>
 #include <LBFGS.h>
 #include <LBFGSB.h>
 #include <stan/math/mix/mat.hpp>
