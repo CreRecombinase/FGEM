@@ -57,7 +57,7 @@ cv_fgem <- function(X,
         tBeta <- coeff_mat(res_d$Beta)
         civx <- as.data.frame(tivx, data = "assessment")
         cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = civx$X, B = civx$BF)
-        p(message = sprintf("cv-%d", y))
+        p(message = sprintf("cv-%d", as.integer(y)))
         dplyr::mutate(res_d,
                       cv_lik = cv_lik,
                       cv_i = y,
