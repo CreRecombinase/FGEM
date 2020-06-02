@@ -58,7 +58,11 @@ cv_fgem <- function(X,
         civx <- as.data.frame(tivx, data = "assessment")
         cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = civx$X, B = civx$BF)
         p(message = sprintf("cv-%d", y))
-        dplyr::mutate(res_d, cv_lik = cv_lik,cv_i=y)
+        dplyr::mutate(res_d,
+                      cv_lik = cv_lik,
+                      cv_i = y,
+                      group_l1 = round(l1 / num_X, digits = 10),
+                      group_l2 = round(l2 / num_X, digits = 10))
     })
 }
 
@@ -111,6 +115,7 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, ncol(X) + 1), alpha=1,lambda=0,v
             l2 = l2,
             alpha = alpha,
             time = lbr$time,
+            num_X = NROW(X),
             convergence = lbr$convergence
     ))
 }
@@ -137,6 +142,21 @@ resolved_or_null <- function(x) {
         }
 }
 
+
+##' @title retrieve only resolved results from list of futures
+##'
+##'
+##' @param x a list of futures
+##' @param atleast the min number of resolved futures to return
+##' @return a list of values of length <= length(x)
+##'
+retrieve_resolved <- function(x, atleast = 1) {
+        x <- wait_on_n(x, atleast)
+        purrr::map(x, resolved_or_null)
+}
+
+
+
 ##' @title Helper to get resolved futures
 ##'
 ##'
@@ -157,6 +177,44 @@ partial_resolve <- function(x) {
         }
 }
 
+num_resolved <- function(x) {
+    sum(purrr::map_lgl(x, future::resolved))
+    
+}
+
+##' @title take a list of futures and block until at least `n` future is resolved
+##'
+##'
+##' @param x container of futures
+##' @return x
+wait_on_n <- function(x, n=1,pause = 0.02) {
+    n <- pmin(n, length(x))
+    rate <- purrr::rate_delay(pause)
+    ready_n <- num_resolved(x)
+    while (ready_n < n) {
+        purrr::rate_sleep(rate)
+        ready_n <- num_resolved(x)
+    }
+    return(x)
+}
+
+min_lambda_l0n <- function(x) {
+        dplyr::bind_rows(retrieve_resolved(x))
+        min_lambda_l0 <- resolved_rows %>%
+                dplyr::filter(l0n == 1) %>%
+                dplyr::arrange(lambda) %>%
+                dplyr::pull(lambda)
+        if (length(min_lambda_l0) > 0) {
+                      return(min_lambda_l0)
+              }
+        return(Inf)
+}
+
+
+which_unneeded <- function(x,lambda,min_lambda){
+    !purrr::map_lgl(x, future::resolved) | lambda >min_lambda
+}
+
 ##' @title fit fgem using lbfgs
 ##'
 ##'
@@ -172,48 +230,36 @@ partial_resolve <- function(x) {
 ##' @export
 fgem_bfgs <- function(X,
                       BF,
-                      Beta0 = rep(0, ncol(X) + 1),
+                      Beta0 = c(fgem_null(BF), rep(0, ncol(X))),
                       verbose = FALSE,
                       alpha = 1,
-                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2), ...) {
+                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),
+                      early_exit=FALSE,...) {
 
 
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
-    reg_resl <- list()
 
-    reg_resl <- purrr::map(lambda, ~ function(l, X, BF, Beta0, alpha, verbose) {
+    reg_resl <- purrr::map(lambda, function(l, X, BF, Beta0, alpha, verbose) {
             future::future(fgem_elasticnet(X, BF, Beta0, alpha, l, verbose))
-    })
-    names(reg_resl) <- lambda
+    }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose)
 
-    ##                                     # wait for
-    ## sub_lambda <- lambda
-    ## while (!all(purrr::map_lgl(reg_resl, future::resolved))) {
-    ##     resolved_rows <- purrr::map(reg_resl, resolved_or_null) %>%
-    ##         purrr::compact()
-    ##     if(length(resolved_rows)>0){
-    ##         min_lambda_l0 <- dplyr::bind_rows(resolved_rows) %>%
-    ##                 dplyr::filter(l0n == 1) %>%
-    ##             dplyr::arrange(lambda) %>%
-    ##             dplyr::pull(lambda)
-    ##         if(length(min_lambda_l0)>0){
-    ##             extra_l0 <- sub_lambda > min_lambda_l0[1]
-    ##             reg_resl <- purrr::map2(reg_resl, extra_l0, function(x, y) {
-    ##                     if (!future::resolved(x) && y) {
-    ##                             return(NULL)
-    ##                     }
-    ##                     return(x)
-    ##             })
-    ##             sub_lambda <- sub_lambda[purrr::map_lgl(reg_resl, ~ !is.null(.x))]
-    ##             reg_resl <- purrr::compact
-
-
-
-    ## }
-    ## if (lbr$l0n == 1) {
-    ##     break
-    ## }
+                                        # The stopping conditions are:
+                                        # 1) all jobs finished
+                                        # 2) all jobs with lambda < tl finish where
+                                        # tl is the lowest value of lambda for which l0n==1
+    if(early_exit){
+        new_lambda <- lambda
+        ret_res <- retrieve_resolved(reg_resl, atleast = 1)
+        nr <- length(ret_res)
+        while (nr < length(reg_resl)) {
+            mll <- min_lambda_l0n(ret_res)
+            bad_futures <- which_unneeded(reg_resl, new_lambda, mll)
+            new_lambda <- new_lambda[!bad_futures]
+            reg_resl <- reg_resl[!bad_futures]
+            nr <- num_resolved(reg_resl)
+        }
+    }
     return(dplyr::bind_rows(purrr::map(reg_resl, future::value)))
 }
 
@@ -375,11 +421,15 @@ pmean <- function(Beta, feat_mat) {
 
 
 fgem_null <- function(BF, prior = 0.02, tmu = prior_mean(BF, prior)) {
-        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF, lambda = 0)$Beta[[1]]$Beta
+        fgem_bfgs(
+                X = matrix(0, length(BF), 0, dimnames = list(names(BF), character())),
+                BF, Beta0 = 0.0,
+                lambda = 0
+        )$Beta[[1]]$Beta
 }
 
 fgem_null_lik <- function(BF) {
-        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF, lambda = 0)$lik
+        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF,Beta0=0.0, lambda = 0)$lik
 }
 
 
