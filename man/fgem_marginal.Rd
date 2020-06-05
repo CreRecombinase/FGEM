@@ -8,7 +8,15 @@ both gene-level bayes factors and gene-level features
 and returns a dataframe with effect size estimates
 for every feature (run as univariate)}
 \usage{
-fgem_marginal(X, BF, prior_mean = 0.02, epsilon = 1e-06, max_iter = 150, ...)
+fgem_marginal(
+  X,
+  BF,
+  prior_mean = 0.02,
+  epsilon = 1e-06,
+  max_iter = 150,
+  parallel = FALSE,
+  ...
+)
 }
 \arguments{
 \item{X}{feature matrix (must have column names)}

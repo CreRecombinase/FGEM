@@ -41,7 +41,7 @@ prep_fgem <- function(X, BF, l2) {
 cv_fgem <- function(X,
                     BF,
                     alpha = 1,
-                    lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2)){
+                    lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),...){
 
 
     idf <- tibble::tibble(BF = BF, X)
@@ -75,7 +75,7 @@ coeff_mat <- function(Beta_l) {
 
 
 
-fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0,verbose=FALSE, ...) {
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE, ...) {
 
     X <- as.matrix(X)
     l <- lambda * NROW(X)
@@ -104,7 +104,7 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0,v
     return(tibble::tibble_row(
             Beta = list(tibble::tibble(
                     Beta = lbr$par,
-                    feature_name = c("Intercept", colnames(X))
+                    feature_name = c("Intercept", colnames(X) %||% paste0("V", seq_len(NCOL(X))))
             )),
             l0n = lbr$l0n,
             l1n = lbr$l1n,
@@ -199,15 +199,8 @@ wait_on_n <- function(x, n=1,pause = 0.02) {
 }
 
 min_lambda_l0n <- function(x) {
-        dplyr::bind_rows(retrieve_resolved(x))
-        min_lambda_l0 <- resolved_rows %>%
-                dplyr::filter(l0n == 1) %>%
-                dplyr::arrange(lambda) %>%
-                dplyr::pull(lambda)
-        if (length(min_lambda_l0) > 0) {
-                      return(min_lambda_l0)
-              }
-        return(Inf)
+        retrieve_resolved(x) %>%
+                purrr::detect(~ .x$l0n == 1)
 }
 
 
@@ -233,41 +226,39 @@ fgem_bfgs <- function(X,
                       Beta0 = c(fgem_null(BF), rep(0, ncol(X))),
                       verbose = FALSE,
                       alpha = 1,
-                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),
-                      early_exit=FALSE,parallel=TRUE,...) {
+                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),...) {
 
-
+    lambda <- sort(lambda)
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
     arl <- rlang::list2(...)
-    if(!parallel){
-        return(purrr::map_dfr(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
-                fgem_elasticnet(X, BF, Beta0, alpha, l, verbose,...)
-        }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...))
-    }else{
-        reg_resl <- purrr::map(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
-                future::future(fgem_elasticnet(X, BF, Beta0, alpha, l, verbose, ...))
-        }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...)
-
-
-                                        # The stopping conditions are:
-                                        # 1) all jobs finished
-                                        # 2) all jobs with lambda < tl finish where
-                                        # tl is the lowest value of lambda for which l0n==1
-        if(early_exit){
-            new_lambda <- lambda
-            ret_res <- retrieve_resolved(reg_resl, atleast = 1)
-            nr <- length(ret_res)
-            while (nr < length(reg_resl)) {
-                mll <- min_lambda_l0n(ret_res)
-                bad_futures <- which_unneeded(reg_resl, new_lambda, mll)
-                new_lambda <- new_lambda[!bad_futures]
-                reg_resl <- reg_resl[!bad_futures]
-                nr <- num_resolved(reg_resl)
-            }
-        }
-        return(dplyr::bind_rows(purrr::map(reg_resl, future::value)))
+    # if (!parallel){
+    #     return(purrr::map_dfr(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
+    #         fgem_elasticnet(X, BF, Beta0, alpha, l, verbose, ...)
+    #     }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...))
+    # }else{
+    reg_resl <- list()
+    for (i in seq_along(lambda)) {
+      l <- lambda[i]
+      pre_l <- min_lambda_l0n(reg_resl)
+      if(!is.null(pre_l)){
+        pre_l$lambda <- l * NROW(X)
+        pre_l$l2 <- (1 - alpha) * (l * NROW(X))
+        pre_l$l1 <- (alpha) * (l * NROW(X))
+        reg_resl[[i]] <- pre_l
+      }else{
+        reg_resl[[i]] <- future::future(fgem_elasticnet(X,
+                                                        BF,
+                                                        Beta0,
+                                                        alpha,
+                                                        l,
+                                                        verbose,
+                                                        ... = ...
+        ))
+        Sys.sleep(.5)
+      }
     }
+    return(purrr::map_dfr(reg_resl, future::value))
 }
 
 EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"),  ...) {
@@ -706,20 +697,26 @@ trip2sparseMatrix <- function(rowname_vals,
 ##' @param BF vector of bayes factors
 ##' @param verbose Whether to print debug output
 ##' @export
-fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150, ...) {
+fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,parallel=FALSE, ...) {
     null_lik <-fgem_null_lik(BF)
-    results <- marginal_fgem_fit_bfgs(X, BF, epsilon = epsilon, max_iter = max_iter)
+    if (parallel) {
+        results <- future.apply::future_apply(X, 2, fgem_elasticnet, BF = BF)
+    } else {
+        results <- apply(X, 2, fgem_elasticnet, BF = BF)
+    }
+    if (!is.null(colnames(X))) {
+            results <- purrr::map2_dfr(results, colnames(X), function(x, y) {
+                    x$Beta[[1]]$feature_name[2] <- y
+                    return(x)
+            })
+    } else {
+            results <- dplyr::bind_rows(results)
+    }
     Chisq <- -2 * (null_lik - (results$lik))
-    ret_df <- tibble::tibble(
+    dplyr::mutate(results,
             pval = stats::pchisq(Chisq, df = 1, lower.tail = F),
-            iter = results$iter,
-            lik=results$lik,
-            message = results$message,
-            coeff = results$coeff[2, ],
-            Intercept = results$coeff[1, ],
-            feat_sum = results$feat_sum,
-            feature_name = results$feature_name,
-            qval = p.adjust(pval, method = "fdr")
+            qval = p.adjust(dplyr::if_else(convergence == 0, pval, 1), method = "fdr"),
+            sum_X = colSums(X)
     )
 }
 
