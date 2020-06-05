@@ -43,7 +43,7 @@ inline T log_FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, cons
   T init = - 0.5 * (Beta.array().tail(p-1).square()*prec).sum();
   Eigen::Array<T,Eigen::Dynamic,1> xb = (X*(Beta.tail(p-1).matrix())).array()+Beta[0];
   return  neg*std::transform_reduce(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
-                                    [](auto a, auto b){
+                                    [](auto a, auto b) -> T{
                                       return logsum(-a,b)+stan::math::log_inv_logit(a);
                                     });
 }

@@ -52,7 +52,7 @@ cv_fgem <- function(X,
     furrr::future_imap_dfr(cv_idf$splits, function(tivx,y) {
         tiv_df <- tibble::as_tibble(tivx)
         tBF <- tiv_df$BF
-        tX <- tiv_df$Xggg
+        tX <- tiv_df$X
         res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
         tBeta <- coeff_mat(res_d$Beta)
         civx <- as.data.frame(tivx, data = "assessment")
