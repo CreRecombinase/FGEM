@@ -4,6 +4,7 @@
 #ifndef LINE_SEARCH_BACKTRACKING_H
 #define LINE_SEARCH_BACKTRACKING_H
 
+#include "LBFGSpp/Param.h"
 #include <Eigen/Core>
 #include <stdexcept>  // std::runtime_error
 

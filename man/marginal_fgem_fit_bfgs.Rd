@@ -10,7 +10,8 @@ marginal_fgem_fit_bfgs(
   prec = 0,
   epsilon = 1e-06,
   max_iter = 100L,
-  progress = TRUE
+  progress = TRUE,
+  log_BF = FALSE
 )
 }
 \description{

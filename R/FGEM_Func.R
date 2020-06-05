@@ -52,7 +52,7 @@ cv_fgem <- function(X,
     furrr::future_imap_dfr(cv_idf$splits, function(tivx,y) {
         tiv_df <- tibble::as_tibble(tivx)
         tBF <- tiv_df$BF
-        tX <- tiv_df$X
+        tX <- tiv_df$Xggg
         res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
         tBeta <- coeff_mat(res_d$Beta)
         civx <- as.data.frame(tivx, data = "assessment")
@@ -75,24 +75,24 @@ coeff_mat <- function(Beta_l) {
 
 
 
-fgem_elasticnet <- function(X, BF, Beta0=rep(0, ncol(X) + 1), alpha=1,lambda=0,verbose=FALSE) {
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0,verbose=FALSE, ...) {
+
+    X <- as.matrix(X)
     l <- lambda * NROW(X)
     l2 <- (1 - alpha) * l
     l1 <- (alpha) * l
     tto <- prep_fgem(X, BF, l2)
-    algo <- dplyr::if_else(l1 != 0,
-                           "LBFGS_LINESEARCH_BACKTRACKING",
-                           "LBFGS_LINESEARCH_DEFAULT")
+    al <- rlang::list2(...)
     pta <- proc.time()
-    lbr <- lbfgs::lbfgs(
+    lbr <- rlang::exec(lbfgs::lbfgs,
+            !!!al,
             call_eval = tto$lik,
             call_grad = tto$grad,
             environment = tto$env,
-            vars = c(rep(0, ncol(X) + 1)),
+            vars = c(rep(0, NCOL(X) + 1)),
             orthantwise_c = l1,
-            linesearch_algorithm = algo,
             orthantwise_start = 1,
-            orthantwise_end = ncol(X) + 1,
+            orthantwise_end = NCOL(X) + 1,
             invisible = dplyr::if_else(verbose, 0L, 1L)
     )
     lbr$time <- (proc.time() - pta)["elapsed"]
@@ -234,33 +234,40 @@ fgem_bfgs <- function(X,
                       verbose = FALSE,
                       alpha = 1,
                       lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),
-                      early_exit=FALSE,...) {
+                      early_exit=FALSE,parallel=TRUE,...) {
 
 
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
+    arl <- rlang::list2(...)
+    if(!parallel){
+        return(purrr::map_dfr(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
+                fgem_elasticnet(X, BF, Beta0, alpha, l, verbose,...)
+        }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...))
+    }else{
+        reg_resl <- purrr::map(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
+                future::future(fgem_elasticnet(X, BF, Beta0, alpha, l, verbose, ...))
+        }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...)
 
-    reg_resl <- purrr::map(lambda, function(l, X, BF, Beta0, alpha, verbose) {
-            future::future(fgem_elasticnet(X, BF, Beta0, alpha, l, verbose))
-    }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose)
 
                                         # The stopping conditions are:
                                         # 1) all jobs finished
                                         # 2) all jobs with lambda < tl finish where
                                         # tl is the lowest value of lambda for which l0n==1
-    if(early_exit){
-        new_lambda <- lambda
-        ret_res <- retrieve_resolved(reg_resl, atleast = 1)
-        nr <- length(ret_res)
-        while (nr < length(reg_resl)) {
-            mll <- min_lambda_l0n(ret_res)
-            bad_futures <- which_unneeded(reg_resl, new_lambda, mll)
-            new_lambda <- new_lambda[!bad_futures]
-            reg_resl <- reg_resl[!bad_futures]
-            nr <- num_resolved(reg_resl)
+        if(early_exit){
+            new_lambda <- lambda
+            ret_res <- retrieve_resolved(reg_resl, atleast = 1)
+            nr <- length(ret_res)
+            while (nr < length(reg_resl)) {
+                mll <- min_lambda_l0n(ret_res)
+                bad_futures <- which_unneeded(reg_resl, new_lambda, mll)
+                new_lambda <- new_lambda[!bad_futures]
+                reg_resl <- reg_resl[!bad_futures]
+                nr <- num_resolved(reg_resl)
+            }
         }
+        return(dplyr::bind_rows(purrr::map(reg_resl, future::value)))
     }
-    return(dplyr::bind_rows(purrr::map(reg_resl, future::value)))
 }
 
 EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"),  ...) {
@@ -684,13 +691,8 @@ trip2sparseMatrix <- function(rowname_vals,
             j = col_id[colname_vals],
             dims = c(length(total_rownames), length(total_colnames)),
             x = values, dimnames = list(total_rownames, total_colnames)
-    )
-    if (csr) {
-        rstan::extract_sparse_parts(ret_m)
-    }
-    else{
-        as.matrix(ret_m)
-    }
+            )
+    as.matrix(ret_m)
 }
 
 
@@ -704,13 +706,15 @@ trip2sparseMatrix <- function(rowname_vals,
 ##' @param BF vector of bayes factors
 ##' @param verbose Whether to print debug output
 ##' @export
-fgem_marginal <- function(X,BF,prior_mean = 0.02, ...) {
+fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150, ...) {
     null_lik <-fgem_null_lik(BF)
-    results <- marginal_fgem_fit_bfgs(X,BF)
+    results <- marginal_fgem_fit_bfgs(X, BF, epsilon = epsilon, max_iter = max_iter)
     Chisq <- -2 * (null_lik - (results$lik))
-    tibble::tibble(
+    ret_df <- tibble::tibble(
             pval = stats::pchisq(Chisq, df = 1, lower.tail = F),
             iter = results$iter,
+            lik=results$lik,
+            message = results$message,
             coeff = results$coeff[2, ],
             Intercept = results$coeff[1, ],
             feat_sum = results$feat_sum,

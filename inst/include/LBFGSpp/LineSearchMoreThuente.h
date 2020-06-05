@@ -314,6 +314,149 @@ public:
         if(iter >= param.max_linesearch)
             throw std::runtime_error("the line search routine reached the maximum number of iterations");
     }
+  template <typename Foo>
+    static void LineSearch(Foo& f, Scalar& fx, Vector& x, Vector& grad,
+                           Scalar& step,
+                           const Vector& drt, const Vector& xp,
+                           const LBFGSParam<Scalar>& param)
+    {
+              // std::cout << "========================= Entering line search =========================\n\n";
+      const auto step_max = param.max_step;
+        // Check the value of step
+        if(step <= Scalar(0))
+            std::invalid_argument("'step' must be positive");
+        if(step > step_max)
+            std::invalid_argument("'step' exceeds 'step_max'");
+
+        // Save the function value at the current x
+        const Scalar fx_init = fx;
+        // Projection of gradient on the search direction
+        const Scalar dg_init = grad.dot(drt);
+
+        // std::cout << "fx_init = " << fx_init << ", dg_init = " << dg_init << std::endl << std::endl;
+
+        // Make sure d points to a descent direction
+        if(dg_init >= 0)
+            std::logic_error("the moving direction does not decrease the objective function value");
+
+        // Tolerance for convergence test
+        // Sufficient decrease
+        const Scalar test_decr = param.ftol * dg_init;
+        // Curvature
+        const Scalar test_curv = -param.wolfe * dg_init;
+
+        // The bracketing interval
+        Scalar  I_lo = Scalar(0),                           I_hi = std::numeric_limits<Scalar>::infinity();
+        Scalar fI_lo = Scalar(0),                          fI_hi = std::numeric_limits<Scalar>::infinity();
+        Scalar gI_lo = (Scalar(1) - param.ftol) * dg_init, gI_hi = std::numeric_limits<Scalar>::infinity();
+        // Function value and gradient at the current step size
+        x.noalias() = xp + step * drt;
+        fx = f(x, grad);
+        Scalar dg = grad.dot(drt);
+
+        // std::cout << "max_step = " << step_max << ", step = " << step << ", fx = " << fx << ", dg = " << dg << std::endl;
+
+        // Convergence test
+        if(fx <= fx_init + step * test_decr && std::abs(dg) <= test_curv)
+        {
+            // std::cout << "** Criteria met\n\n";
+            // std::cout << "========================= Leaving line search =========================\n\n";
+            return;
+        }
+
+        // Extrapolation factor
+        const Scalar delta = Scalar(1.1);
+        int iter;
+        for(iter = 0; iter < param.max_linesearch; iter++)
+        {
+            // ft = psi(step) = f(xp + step * drt) - f(xp) - step * test_decr
+            // gt = psi'(step) = dg - mu * dg_init
+            // mu = param.ftol
+            const Scalar ft = fx - fx_init - step * test_decr;
+            const Scalar gt = dg - param.ftol * dg_init;
+
+            // Update bracketing interval and step size
+            Scalar new_step;
+            if(ft > fI_lo)
+            {
+                // Case 1: ft > fl
+                new_step = step_selection( I_lo,  I_hi, step,
+                                          fI_lo, fI_hi, ft,
+                                          gI_lo, gI_hi, gt);
+                I_hi = step;
+                fI_hi = ft;
+                gI_hi = gt;
+
+                // std::cout << "Case 1: new step = " << new_step;
+
+            } else if(gt * (fI_lo - step) > Scalar(0)) {
+                // Case 2: ft <= fl, gt * (al - at) > 0
+                new_step = std::min(step_max, step + delta * (step - I_lo));
+
+                I_lo = step;
+                fI_lo = ft;
+                gI_lo = gt;
+
+                // std::cout << "Case 2: new step = " << new_step;
+
+            } else {
+                // Case 3: ft <= fl, gt * (al - at) <= 0
+                new_step = step_selection( I_lo,  I_hi, step,
+                                          fI_lo, fI_hi, ft,
+                                          gI_lo, gI_hi, gt);
+                I_hi = I_lo;
+                fI_hi = fI_lo;
+                gI_hi = gI_lo;
+
+                I_lo = step;
+                fI_lo = ft;
+                gI_lo = gt;
+
+                // std::cout << "Case 3: new step = " << new_step;
+            }
+
+            // In case step, new_step, and step_max are equal, directly return the computed x and fx
+            if(step == step_max && new_step >= step_max)
+            {
+                // std::cout << "** Maximum step size reached\n\n";
+                // std::cout << "========================= Leaving line search =========================\n\n";
+                return;
+            }
+            // Otherwise, recompute x and fx based on new_step
+            step = new_step;
+
+            if(step < param.min_step)
+              throw std::runtime_error("the line search step became smaller than the minimum value allowed: ("+std::to_string(step)+" < "+std::to_string(param.min_step)+")");
+
+            if(step > param.max_step)
+                throw std::runtime_error("the line search step became larger than the maximum value allowed");
+
+            // Update parameter, function value, and gradient
+            x.noalias() = xp + step * drt;
+            fx = f(x, grad);
+            dg = grad.dot(drt);
+
+            // std::cout << ", fx = " << fx << std::endl;
+
+            // Convergence test
+            if(fx <= fx_init + step * test_decr && std::abs(dg) <= test_curv)
+            {
+                // std::cout << "** Criteria met\n\n";
+                // std::cout << "========================= Leaving line search =========================\n\n";
+                return;
+            }
+            if(step >= step_max)
+            {
+                // std::cout << "** Maximum step size reached\n\n";
+                // std::cout << "========================= Leaving line search =========================\n\n";
+                return;
+            }
+        }
+
+        if(iter >= param.max_linesearch)
+            throw std::runtime_error("the line search routine reached the maximum number of iterations");
+      
+    }
 };
 
 

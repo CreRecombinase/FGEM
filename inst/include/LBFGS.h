@@ -10,6 +10,7 @@
 #include "LBFGSpp/LineSearchBacktracking.h"
 #include "LBFGSpp/LineSearchBracketing.h"
 #include "LBFGSpp/LineSearchNocedalWright.h"
+#include "LBFGSpp/LineSearchMoreThuente.h"
 
 
 namespace LBFGSpp {

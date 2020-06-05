@@ -70,16 +70,20 @@ double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Ei
   }
 }
 
-double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false){
+//[[Rcpp::export]]
+double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
   Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
   using Mt = Eigen::MatrixXd;
   if(X.cols()!=par.size()-1)
     Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
-  if(!neg){
-    return fgem_lik<Mt,1>(X,BF,prec)(param);
-  }else{
-    return fgem_lik<Mt,-1>(X,BF,prec)(param);
+  if(log_BF){
+    if(!neg)
+      return log_fgem_lik<Mt,1>(X,BF,prec)(param);
+    return log_fgem_lik<Mt,-1>(X,BF,prec)(param);
   }
+  if(!neg)
+    return fgem_lik<Mt,1>(X,BF,prec)(param);
+  return fgem_lik<Mt,-1>(X,BF,prec)(param);
 }
 
 
@@ -152,14 +156,17 @@ Rcpp::List fgem_fit_bfgs(const Eigen::ArrayXd par,SEXP X, const Eigen::Map<Eigen
 //'
 //' @export
 //[[Rcpp::export]]
-Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const double epsilon=1e-6, const int max_iter=100,const bool progress=true){
-  LBFGSpp::LBFGSParam<double> param;
+Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen::ArrayXd> BF,double prec=0.0,const double epsilon=1e-6, const int max_iter=100,const bool progress=true,const bool log_BF=false){
+  LBFGSpp::LBFGSBParam<double> param;
   param.epsilon = epsilon;
-  param.max_iterations = max_iter; 
+  param.max_iterations = max_iter;
+  // param.past=1;
+  // param.delta=1e-10;
   //  LBFGSpp::LineSearchMoreThuente<double>
 
-  LBFGSpp::LBFGSSolver<double> solver(param);
-  double fx;
+  //  LBFGSpp::LBFGSSolver<double,LBFGSpp::LineSearchMoreThuente> solver(param);
+  LBFGSpp::LBFGSBSolver<double> solver(param);
+
   const size_t g= BF.size();
   using namespace Rcpp;
   StringVector feature_name = colnames(X);
@@ -168,37 +175,62 @@ Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen:
       Rcpp::stop("rows of X must be equal to length of BF");
   }
   Eigen::ArrayXd sum_feat =  sX.colwise().sum();
-  double& cr=sX.coeffRef(0,0);
-  Eigen::Map<Eigen::MatrixXd> sc(&cr,g,1);
+  double* cr=sX.data();
+  Eigen::Map<Eigen::MatrixXd> sc(cr,g,1);
   const size_t p=sX.cols();
   Progress pp(p, progress);                  
   auto iv = seq_len(p);
   Rcpp::NumericMatrix coeffMat(2,p);
+
+  
   colnames(coeffMat) = colnames(X);
   Rcpp::NumericVector lik_vec(p);
+  Rcpp::StringVector message(p);
+  
   Rcpp::IntegerVector iter_vec(p);
-  Rcpp::IntegerVector obj_vec(p);
   auto coefM = Rcpp::as<Eigen::Map<Eigen::MatrixXd>>(coeffMat);
-      
-      
-  fgem_bfg<Eigen::MatrixXd> fun(fgem_lik<Eigen::MatrixXd,-1>(sc,BF,prec));
+  const char* msg = "converged";
+  auto msg_exp = Rf_mkChar(msg);
+  
+  Eigen::VectorXd lb = Eigen::VectorXd::Constant(2, -150.0);
+  Eigen::VectorXd ub = Eigen::VectorXd::Constant(2, 150.0);
   Eigen::VectorXd ptx = Eigen::VectorXd::Zero(2);
+  Eigen::VectorXd grd = Eigen::VectorXd::Zero(2);
   for(auto i:iv){
     if ( Progress::check_abort() )
       break;
     pp.increment();
-    cr=sX.coeffRef(0,i-1);
-    fun.update_X(Eigen::Map<Eigen::MatrixXd>(&cr,g,1));
+    double* crp=cr+(i-1)*g;
+    Eigen::Map<Eigen::MatrixXd> sc(crp,g,1);
+    auto rmsg_exp=msg_exp;
+    //    fun.update_X(Eigen::Map<Eigen::MatrixXd>(&cr,g,1));
     int niter=0;
-    niter = solver.minimize(fun,ptx,fx);
-    iter_vec[i]=niter;
-    obj_vec[i]=-fx;
-    coefM.col(i)=ptx;        
+    double fx=0;
+    try{
+      if(log_BF){
+        auto fun = log_fgem_bfg<Eigen::MatrixXd>(log_fgem_lik<Eigen::MatrixXd,-1>(sc,BF,prec));
+        niter = solver.minimize(fun,ptx,fx,lb,ub);
+      }     else{
+        auto fun = fgem_bfg<Eigen::MatrixXd>(fgem_lik<Eigen::MatrixXd,-1>(sc,BF,prec));
+        niter = solver.minimize(fun,ptx,fx,lb,ub);
+
+      }
+    } catch(const std::runtime_error& error){
+      niter =NA_INTEGER;
+      fx = NA_REAL;
+      rmsg_exp=Rf_mkChar(error.what());
+    }
+
+    iter_vec[i-1]=niter;
+    lik_vec[i-1]=-fx;
+    coefM.col(i-1)=ptx;
+    message[i-1]=rmsg_exp;
   }
   
   return List::create(_["iter"]=iter_vec,
-                      _["lik"]=obj_vec,
+                      _["lik"]=lik_vec,
                       _["coeff"]=coeffMat,
+                      _["message"]=message,
                       _["feat_sum"]=Rcpp::wrap(sum_feat),
                       _["feature_name"]=feature_name);
       

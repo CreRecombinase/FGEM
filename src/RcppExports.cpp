@@ -52,6 +52,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// fgem_lik_stan
+double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg, const bool log_BF);
+RcppExport SEXP _fgem_fgem_lik_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP, SEXP log_BFSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type par(parSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd> >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
+    Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
+    Rcpp::traits::input_parameter< const bool >::type neg(negSEXP);
+    Rcpp::traits::input_parameter< const bool >::type log_BF(log_BFSEXP);
+    rcpp_result_gen = Rcpp::wrap(fgem_lik_stan(par, X, BF, prec, neg, log_BF));
+    return rcpp_result_gen;
+END_RCPP
+}
 // fgem_hess_stan
 Eigen::MatrixXd fgem_hess_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec);
 RcppExport SEXP _fgem_fgem_hess_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP) {
@@ -83,18 +99,19 @@ BEGIN_RCPP
 END_RCPP
 }
 // marginal_fgem_fit_bfgs
-Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const double epsilon, const int max_iter, const bool progress);
-RcppExport SEXP _fgem_marginal_fgem_fit_bfgs(SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP epsilonSEXP, SEXP max_iterSEXP, SEXP progressSEXP) {
+Rcpp::List marginal_fgem_fit_bfgs(Rcpp::NumericMatrix X, const Eigen::Map<Eigen::ArrayXd> BF, double prec, const double epsilon, const int max_iter, const bool progress, const bool log_BF);
+RcppExport SEXP _fgem_marginal_fgem_fit_bfgs(SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP epsilonSEXP, SEXP max_iterSEXP, SEXP progressSEXP, SEXP log_BFSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type X(XSEXP);
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
-    Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
+    Rcpp::traits::input_parameter< double >::type prec(precSEXP);
     Rcpp::traits::input_parameter< const double >::type epsilon(epsilonSEXP);
     Rcpp::traits::input_parameter< const int >::type max_iter(max_iterSEXP);
     Rcpp::traits::input_parameter< const bool >::type progress(progressSEXP);
-    rcpp_result_gen = Rcpp::wrap(marginal_fgem_fit_bfgs(X, BF, prec, epsilon, max_iter, progress));
+    Rcpp::traits::input_parameter< const bool >::type log_BF(log_BFSEXP);
+    rcpp_result_gen = Rcpp::wrap(marginal_fgem_fit_bfgs(X, BF, prec, epsilon, max_iter, progress, log_BF));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -114,9 +131,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_fgem_fgem_grad_stan", (DL_FUNC) &_fgem_fgem_grad_stan, 5},
     {"_fgem_sp_fgem_grad_stan", (DL_FUNC) &_fgem_sp_fgem_grad_stan, 5},
     {"_fgem_sp_fgem_lik_stan", (DL_FUNC) &_fgem_sp_fgem_lik_stan, 5},
+    {"_fgem_fgem_lik_stan", (DL_FUNC) &_fgem_fgem_lik_stan, 6},
     {"_fgem_fgem_hess_stan", (DL_FUNC) &_fgem_fgem_hess_stan, 4},
     {"_fgem_fgem_fit_bfgs", (DL_FUNC) &_fgem_fgem_fit_bfgs, 6},
-    {"_fgem_marginal_fgem_fit_bfgs", (DL_FUNC) &_fgem_marginal_fgem_fit_bfgs, 6},
+    {"_fgem_marginal_fgem_fit_bfgs", (DL_FUNC) &_fgem_marginal_fgem_fit_bfgs, 7},
     {"_fgem_make_env_obj", (DL_FUNC) &_fgem_make_env_obj, 1},
     {NULL, NULL, 0}
 };

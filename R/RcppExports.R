@@ -24,6 +24,10 @@ sp_fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE) {
     .Call('_fgem_sp_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg)
 }
 
+fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+}
+
 #' evd_dnorm_hess_stan
 #' 
 #' This is an attempt to use stan's AD features to calculate a hessian 
@@ -48,8 +52,8 @@ fgem_fit_bfgs <- function(par, X, BF, prec = 0.0, epsilon = 1e-6, max_iter = 100
 #' fit fgem using c++ BFGS algorithm
 #'
 #' @export
-marginal_fgem_fit_bfgs <- function(X, BF, prec = 0.0, epsilon = 1e-6, max_iter = 100L, progress = TRUE) {
-    .Call('_fgem_marginal_fgem_fit_bfgs', PACKAGE = 'fgem', X, BF, prec, epsilon, max_iter, progress)
+marginal_fgem_fit_bfgs <- function(X, BF, prec = 0.0, epsilon = 1e-6, max_iter = 100L, progress = TRUE, log_BF = FALSE) {
+    .Call('_fgem_marginal_fgem_fit_bfgs', PACKAGE = 'fgem', X, BF, prec, epsilon, max_iter, progress, log_BF)
 }
 
 make_env_obj <- function(sparse = FALSE) {
