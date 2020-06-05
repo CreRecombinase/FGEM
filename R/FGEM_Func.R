@@ -177,6 +177,13 @@ partial_resolve <- function(x) {
         }
 }
 
+value_wrapper <- function(x) {
+        if (inherits(x, "Future")) {
+                      return(future::value(x))
+              }
+        return(x)
+}
+
 num_resolved <- function(x) {
     sum(purrr::map_lgl(x, future::resolved))
     
@@ -232,11 +239,6 @@ fgem_bfgs <- function(X,
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
     arl <- rlang::list2(...)
-    # if (!parallel){
-    #     return(purrr::map_dfr(lambda, function(l, X, BF, Beta0, alpha, verbose, ...) {
-    #         fgem_elasticnet(X, BF, Beta0, alpha, l, verbose, ...)
-    #     }, X = X, BF = BF, Beta0 = Beta0, alpha = alpha, verbose = verbose, ... = ...))
-    # }else{
     reg_resl <- list()
     for (i in seq_along(lambda)) {
       l <- lambda[i]
@@ -258,7 +260,7 @@ fgem_bfgs <- function(X,
         Sys.sleep(.5)
       }
     }
-    return(purrr::map_dfr(reg_resl, future::value))
+    return(purrr::map_dfr(reg_resl, value_wrapper))
 }
 
 EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"),  ...) {
