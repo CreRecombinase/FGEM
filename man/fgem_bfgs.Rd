@@ -11,8 +11,6 @@ fgem_bfgs(
   verbose = FALSE,
   alpha = 1,
   lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),
-  early_exit = FALSE,
-  parallel = TRUE,
   ...
 )
 }

@@ -8,16 +8,12 @@
 #include <cstddef>
 #include <limits>
 #include <numeric>
-  
-template<typename T,typename U,int neg=-1>
-inline T FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF) noexcept{
 
-  const size_t p= Beta.size();
-  auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
-  return ((pvec.array()*BF)+(1.0-pvec.array())).log().sum()*neg;
-  
-}
-
+#if __has_include(<execution>)
+#define have_transform_reduce 1
+#else
+#define have_transform_reduce 0
+#endif
 
 template<typename T,typename U,int neg=-1>
 inline T FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0) noexcept{
@@ -25,8 +21,8 @@ inline T FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Ei
   const size_t p= Beta.size();
   auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
   return (((pvec.array()*BF)+(1.0-pvec.array())).log().sum() - 0.5 * (Beta.array().tail(p-1).square()*prec).sum()) *neg;
-}
-
+} 
+        
 
 template<typename TA,typename TB>
 inline TA logsum(const TA l1, const TB l2){
@@ -35,21 +31,25 @@ inline TA logsum(const TA l1, const TB l2){
   return l2 +log1p(exp(-abs(l1 - l2))) ;
 }
 
-  
-
 template<typename T,typename U,int neg=-1>
 inline T log_FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> log_BF,const double prec=0.0) noexcept{
 
   const size_t p= Beta.size();
   T init = - 0.5 * (Beta.array().tail(p-1).square()*prec).sum();
   Eigen::Array<T,Eigen::Dynamic,1> xb = (X*(Beta.tail(p-1).matrix())).array()+Beta[0];
+  #if have_transform_reduce
   return  neg*std::transform_reduce(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
-                                    [](auto a, auto b) -> T{
+                                    [](T a, double b) -> T{
                                       return logsum(-a,b)+stan::math::log_inv_logit(a);
                                     });
-}
-
+  #else
+  return  neg*std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
+                                    [](T a, double b) -> T{
+                                      return logsum(-a,b)+stan::math::log_inv_logit(a);
+                                    });
+  #endif
   
+}
 
 template<typename U,int neg=-1>
 struct fgem_lik {

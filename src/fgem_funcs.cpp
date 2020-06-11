@@ -30,6 +30,51 @@ Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::
   return(grad_fx.array());
 }
 
+// 
+// 
+// SEXP fgem_deviance(SEXP y, SEXP mu, SEXP wt)
+// {
+//     int i, n = LENGTH(y), lmu = LENGTH(mu), lwt = LENGTH(wt), nprot = 1;
+//     SEXP ans;
+//     double mui, yi, *rmu, *ry, *rwt, *rans;
+// 
+//     if (!isReal(y)) {y = PROTECT(coerceVector(y, REALSXP)); nprot++;}
+//     ry = REAL(y);
+//     ans = PROTECT(shallow_duplicate(y));
+//     rans = REAL(ans);
+//     if (!isReal(mu)) {mu = PROTECT(coerceVector(mu, REALSXP)); nprot++;}
+//     if (!isReal(wt)) {wt = PROTECT(coerceVector(wt, REALSXP)); nprot++;}
+//     rmu = REAL(mu);
+//     rwt = REAL(wt);
+//     if (lmu != n && lmu != 1)
+// 	error(_("argument %s must be a numeric vector of length 1 or length %d"),
+// 	      "mu", n);
+//     if (lwt != n && lwt != 1)
+// 	error(_("argument %s must be a numeric vector of length 1 or length %d"),
+// 	      "wt", n);
+//     /* Written separately to avoid an optimization bug on Solaris cc */
+//     if(lmu > 1) {
+// 	for (i = 0; i < n; i++) {
+// 	    mui = rmu[i];
+// 	    yi = ry[i];
+// 	    rans[i] =  rwt[lwt > 1 ? i : 0] *
+//               mui*yi + (1-mui);
+// 	}
+//     } else {
+// 	mui = rmu[0];
+// 	for (i = 0; i < n; i++) {
+// 	    yi = ry[i];
+//             rans[i] =  log(rwt[lwt > 1 ? i : 0] *
+//                            (mui*yi + (1-mui)));
+// 	}
+//     }
+// 
+//     UNPROTECT(nprot);
+//     return ans;
+// }
+//   
+    
+
 
 //' Gradient for FGEM likelihood
 //' This is an attempt to use stan's AD features to optimize the FGEM likelihood

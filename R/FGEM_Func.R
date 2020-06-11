@@ -41,15 +41,14 @@ prep_fgem <- function(X, BF, l2) {
 cv_fgem <- function(X,
                     BF,
                     alpha = 1,
-                    lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),...){
+                    lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),...){
 
 
     idf <- tibble::tibble(BF = BF, X)
     v <- 10
-    cv_X <- rsample::vfold_cv(X)
     cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
     p <- progressr::progressor(along = cv_idf$splits)
-    furrr::future_imap_dfr(cv_idf$splits, function(tivx,y) {
+    furrr::future_imap_dfr(cv_idf$splits, function(tivx, y) {
         tiv_df <- tibble::as_tibble(tivx)
         tBF <- tiv_df$BF
         tX <- tiv_df$X
@@ -65,6 +64,8 @@ cv_fgem <- function(X,
                       group_l2 = round(l2 / num_X, digits = 10))
     })
 }
+
+
 
 
 coeff_mat <- function(Beta_l) {
@@ -101,10 +102,14 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
     lbr$l2n <- sum(lbr$par^2)
     lbr$lambda <- l
     lbr$alpha <- alpha
+    cn <- c("Intercept", colnames(X) %||% paste0("V", seq_len(NCOL(X))))
+    if (NCOL(X) == 0) {
+            cn <- character("Intercept")
+    }
     return(tibble::tibble_row(
             Beta = list(tibble::tibble(
                     Beta = lbr$par,
-                    feature_name = c("Intercept", colnames(X) %||% paste0("V", seq_len(NCOL(X))))
+                    feature_name = cn
             )),
             l0n = lbr$l0n,
             l1n = lbr$l1n,
@@ -205,15 +210,12 @@ wait_on_n <- function(x, n=1,pause = 0.02) {
     return(x)
 }
 
-min_lambda_l0n <- function(x) {
-        retrieve_resolved(x) %>%
-                purrr::detect(~ .x$l0n == 1)
+last_completed <- function(x) {
+        rr <- wait_on_n(x, 1) %>%
+                retrieve_resolved()
+        return(rr[[length(rr)]])
 }
 
-
-which_unneeded <- function(x,lambda,min_lambda){
-    !purrr::map_lgl(x, future::resolved) | lambda >min_lambda
-}
 
 ##' @title fit fgem using lbfgs
 ##'
@@ -230,35 +232,65 @@ which_unneeded <- function(x,lambda,min_lambda){
 ##' @export
 fgem_bfgs <- function(X,
                       BF,
-                      Beta0 = c(fgem_null(BF), rep(0, ncol(X))),
+                      Beta0 = c(0, rep(0, ncol(X))),
                       verbose = FALSE,
                       alpha = 1,
-                      lambda = c(0,5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),...) {
+                      lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
+                      add_lambda=FALSE,
+                      ...){
 
-    lambda <- sort(lambda)
+    lambda <- sort(lambda, decreasing = TRUE)
     iseq <- seq_along(lambda)
     stopifnot(length(alpha) == 1)
     arl <- rlang::list2(...)
     reg_resl <- list()
-    for (i in seq_along(lambda)) {
-      l <- lambda[i]
-      pre_l <- min_lambda_l0n(reg_resl)
-      if(!is.null(pre_l)){
-        pre_l$lambda <- l * NROW(X)
-        pre_l$l2 <- (1 - alpha) * (l * NROW(X))
-        pre_l$l1 <- (alpha) * (l * NROW(X))
-        reg_resl[[i]] <- pre_l
-      }else{
-        reg_resl[[i]] <- future::future(fgem_elasticnet(X,
-                                                        BF,
-                                                        Beta0,
-                                                        alpha,
-                                                        l,
-                                                        verbose,
-                                                        ... = ...
-        ))
-        Sys.sleep(.5)
-      }
+    old_max_lambda <- lambda[1]
+    max_lambda <- old_max_lambda
+    reg_resl <- purrr::prepend(reg_resl, fgem_elasticnet(X,
+            BF,
+            Beta0,
+            alpha,
+            max_lambda,
+            verbose,
+            ... = ...
+            ))
+    Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
+    tl0n <- reg_resl[[length(reg_resl)]]$l0n
+    if(add_lambda){
+        while (tl0n > 1) {
+                max_lambda <- max_lambda * 2
+                lambda <- purrr::prepend(lambda, max_lambda)
+                reg_resl <- purrr::prepend(reg_resl, fgem_elasticnet(X,
+                        BF,
+                        Beta0,
+                        alpha,
+                        max_lambda,
+                        verbose,
+                        ... = ...
+                ))
+                Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
+                tl0n <- reg_resl[[length(reg_resl)]]$l0n
+        }
+    }else{
+        if (tl0n > 1) {
+                warning("largest lambda provided does not shrink to 0, rerun with `add_lambda=TRUE` to ensure complete regularization path")
+        }
+    }
+    rest_lambda <- lambda[lambda < old_max_lambda]
+    for (i in seq_along(rest_lambda)) {
+            l <- rest_lambda[i]
+            Beta0 <- last_completed(reg_resl)$Beta[[1]]$Beta
+
+            reg_resl <- purrr::append(reg_resl, future::future(fgem_elasticnet(X,
+                    BF,
+                    Beta0,
+                    alpha,
+                    l,
+                    verbose,
+                    ... = ...
+            )))
+
+            Sys.sleep(.5)
     }
     return(purrr::map_dfr(reg_resl, value_wrapper))
 }
@@ -345,40 +377,22 @@ FGEM_Logit_log_lik <- function(Beta, x, B) {
 
 
 gen_p <- function(Beta, x, log = FALSE) {
-
-        stats::plogis((x %*% Beta[-1]) + Beta[1], log = log)
+        xb <- as.matrix((x %*% Beta[-1]) + Beta[1])
+        apply(xb, 2, stats::plogis, log = log)
 }
 
-gen_u <- function(Beta, x, B, log=FALSE) {
+gen_u <- function(Beta, x, B, log = FALSE) {
     if(!log){
         p <- gen_p(Beta, x, log = log)
         return(as.vector((p * B) / ((p * B) + (1 - p))))
     }else{
-        return(as.vector(-log1pexp(- (x %*% Beta[-1] + Beta[1]) - log(B))))
+        return(-log1pexp(-(x %*% Beta[-1] + Beta[1]) - log(B)))
     }
 }
 
 
 log_log_u <- function(Beta, x, logBF) {
     c(-log1pexp(-(x %*% Beta[-1] + Beta[1]) - logBF))
-}
-
-
-##' @title Predict posterior from fgem fit
-##'
-##'
-##' @param fit result of call to `fgem`
-##' @param x annotation matrix (colnames should correspond to `feature_name` column of fit$data[[1]])
-##' @param BF Bayes Factor
-##' @param lambda value of lambda to use in prediction
-##' @param log return log posterior
-##' @return vector of length length(BF) with posterior probabilities
-##' @export
-predict_fgem <- function(fit, x, BF, lambda, log = FALSE) {
-        beta_df <- dplyr::pull(dplyr::filter(fit, lambda == lambda), Beta)[[1]]
-        beta <- magrittr::set_names(beta_df$Beta, beta_df$feature_name)
-        beta <- beta[order(beta)]
-        magrittr::set_names(gen_u(Beta = beta, x = x[, names(beta)], B = BF, log = log), rownames(x))
 }
 
 
@@ -419,175 +433,51 @@ pmean <- function(Beta, feat_mat) {
         return(mean(pvec))
 }
 
-
-fgem_null <- function(BF, prior = 0.02, tmu = prior_mean(BF, prior)) {
-        fgem_bfgs(
-                X = matrix(0, length(BF), 0, dimnames = list(names(BF), character())),
-                BF, Beta0 = 0.0,
-                lambda = 0
-        )$Beta[[1]]$Beta
+fgem_null <- function(BF, log = FALSE, ...) {
+    stopifnot(!log)
+    stats::optimize(FGEM_Logit_log_lik, lower = -10, upper = 100,  x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)$maximum
 }
 
+
 fgem_null_lik <- function(BF) {
-        fgem_bfgs(matrix(0, length(BF), 0, dimnames = list(names(BF), character())), BF,Beta0=0.0, lambda = 0)$lik
+    stats::optimize(FGEM_Logit_log_lik, lower = -10, upper = 100,  x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)$objective
+
+}
+
+fgem_null_fit <- function(BF, log = FALSE, ...) {
+    stopifnot(!log)
+    pta <- proc.time()
+    lbf <- stats::optimize(FGEM_Logit_log_lik,
+                    lower = -10,
+                    upper = 100, x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)
+    ptb <- (proc.time() - pta)["elapsed"]
+    return(tibble::tibble_row(
+                       Beta = list(tibble::tibble(
+                                               Beta = lbf$maximum,
+                                               feature_name = "Intercept"
+                                           )),
+                       l0n = 1,
+                       l1n = abs(lbf$maximum),
+                       l2n = lbf$maximum^2,
+                       lik = lbf$objective,
+                       lambda = Inf,
+                       l1 = Inf,
+                       l2 = 0 * Inf,
+                       alpha = 1,
+                       time = ptb,
+                       num_X = length(BF),
+                       convergence = 0
+                   ))
 }
 
 
 prior_mean <- function(BF, prior = 0.02, log = FALSE) {
-        if (!log) {
-                (prior * BF) / ((prior * BF) + (1 - prior))
-        } else {
-                -log1p((1 - prior) / (prior * BF))
-        }
+    if (!log) {
+        (prior * BF) / ((prior * BF) + (1 - prior))
+    } else {
+        -log1p((1 - prior) / (prior * BF))
+    }
 }
-
-
-
-guess_beta0 <- function(X, BF, prior = 0.02, tmu = prior_mean(BF, prior),add_intercept=TRUE) {
-    if (!"Intercept" %in% colnames(X)) {
-        if(add_intercept){
-            inter_x <- matrix(1, nrow = NROW(X), ncol = 1, dimnames = list(rownames(X), "Intercept"))
-            x <- cbind(X, inter_x)
-        }
-    }
-    fastglm::fastglmPure(
-                 y = tmu,
-                 x = X,
-                 family = stats::quasibinomial(link = "logit")
-             )[["coefficients"]]
-}
-
-
-##' @title Maximize FGEM marginalized likelihood
-##'
-##'
-##' @param x gene-level feature set
-##' @param BF gene-level bayes factors
-##' @param prior (scalar?) prior probability z=1
-##' @param tmu (gene-level) prior probability z=1 (takes precedence over `prior` if both are specified)
-##' @param Beta0 initial guess for enrichment
-##' @param verbose logical scalar.  Print out lots of debug info?
-##' @param ...
-##' @return dataframe with nested dataframe with multivariate effect-size estimates, and FGEM likelihood
-##' @export
-fgem_lik <- function(x,BF,
-                     prior=0.02,
-                     tmu = prior_mean(BF, prior),
-                     add_intercept=TRUE,
-                     Beta0 = guess_beta0(x, BF, prior, tmu, add_intercept),
-                     verbose = FALSE,...){
-    stopifnot(NROW(x) == length(BF))
-    vmessage <- verbose_message_factory(verbose)
-    vmessage("Beta0", paste0(Beta0, collapse = ","))
-    if (!"Intercept" %in% colnames(x)) {
-        if(add_intercept){
-            inter_x <- matrix(1, nrow = NROW(x), ncol = 1, dimnames = list(rownames(x), "Intercept"))
-            x <- cbind(x, inter_x)
-        }
-    }
-    EM_mat(Beta0, x, BF, verbose = verbose, ...)
-}
-
-
-
-
-
-
-##' @title Maximize FGEM marginalized likelihood
-##'
-##'
-##' @param x gene-level feature set
-##' @param BF gene-level bayes factors
-##' @param prior (scalar?) prior probability z=1
-##' @param tmu (gene-level) prior probability z=1 (takes precedence over `prior` if both are specified)
-##' @param Beta0 initial guess for enrichment
-##' @param verbose logical scalar.  Print out lots of debug info?
-##' @param jaccard_cutoff cutoff for removing correlated features
-##' @param qval_cutoff adjusted p-value (by method="fdr") for the stopping criteria for forward selection
-##' @return dataframe with nested dataframe with multivariate effect-size estimates, and FGEM likelihood
-##' @export
-forward_select_fgem_lik <- function(x,BF,
-                                    prior=0.02,
-                                    tmu = prior_mean(BF, prior),
-                                    Beta0 = guess_beta0(x, BF, prior, tmu),
-                                    verbose = FALSE,
-                                    jaccard_cutoff=0.1,
-                                    qval_cutoff=0.05,
-                                    ...){
-    stopifnot(NROW(x) == length(BF))
-    vmessage <- verbose_message_factory(verbose)
-    vmessage("Beta0", paste0(Beta0, collapse = ","))
-    if (!"Intercept" %in% colnames(x)) {
-        inter_x <- matrix(1, nrow = NROW(x), ncol = 1, dimnames = list(rownames(x), "Intercept"))
-        x <- cbind(x, inter_x)
-    }else{
-        inter_x <- x[, "Intercept", drop = FALSE]
-    }
-    remaining_terms <- colnames(x)
-    current_model <- c("Intercept")
-    null_model <- c("Intercept")
-    correlated_features <- character()
-    null_results <- fgem_lik(x[, null_model, drop = FALSE], BF, prior, tmu, add_intercept = FALSE)
-    remaining_terms <- remaining_terms[!remaining_terms %in% current_model]
-    if (length(remaining_terms) > 0) {
-            axm <- purrr::array_branch(x[, remaining_terms,drop=FALSE], 2)
-            jacc_fun <- function(x, y) {
-                    sum((x & y)) / sum(x | y)
-            }
-            feat_dist <- outer(axm, axm, FUN = Vectorize(jacc_fun))
-    }
-    while (length(remaining_terms) > 0) {
-        NullLik <- null_results$LogLik
-        fit_fun <- function(i, remaining_terms, current_model, BF, prior, tmu, NullLik, x) {
-            lterm <- remaining_terms[i]
-            dplyr::mutate(fgem::fgem_lik(x[,
-                                           unique(c(lterm, current_model)),
-                                           drop = FALSE
-                                           ],
-                                         BF,
-                                         prior,
-                                         tmu,
-                                         add_intercept = FALSE
-                                         ),
-                          term = lterm,
-                          Chisq = -2 * (NullLik - LogLik),
-                          pval = stats::pchisq(Chisq, df = 1, lower.tail = F)
-                          )
-        }
-        single_df <- purrr::map_dfr(
-                seq_along(remaining_terms),
-                fit_fun,
-                remaining_terms = remaining_terms,
-                current_model = current_model,
-                BF = BF,
-                prior = prior,
-                tmu = tmu,
-                NullLik = NullLik,
-                x = x
-                ) %>%
-            mutate(qval = p.adjust(pval, method = "fdr"))
-        bad_terms <- filter(single_df, qval >= qval_cutoff) %>% pull(term)
-        single_df <- filter(single_df, qval < qval_cutoff)
-        remaining_terms <- remaining_terms[!remaining_terms %in% bad_terms]
-        if (nrow(single_df) > 0) {
-            null_results <- filter(single_df, pval == min(pval)) %>%
-                slice(1)
-            next_term <- null_results$term
-            current_model <- unique(c(current_model, next_term))
-        }
-        remaining_terms <- remaining_terms[!remaining_terms %in% current_model]
-        not_int <- current_model[current_model != "Intercept"]
-        t_feat_dist <- feat_dist[not_int,,drop=FALSE]
-        correlated_features <- unique(c(
-            correlated_features,
-            colnames(t_feat_dist)[which(t_feat_dist > jaccard_cutoff, arr.ind = TRUE)[, "col"]]
-        ))
-        remaining_terms <- remaining_terms[!remaining_terms %in% correlated_features]
-    }
-    return(null_results)
-}
-
-
 
 
 ##' @title Run FGEM
@@ -633,60 +523,6 @@ fgem <- function(x,
 }
 
 
-##' @title Convert a table-style sparse matrix representation to a sparse matrix
-##'
-##'
-##'
-##' @param rowname_vals vector with the rownames of the values
-##' @param colname_vals vector with the colnames of the values
-##' @param values the values themselves (default is 1.0)
-##' @param total_rownames the universe of rownames, defaults to all the unique rowname_vals
-##' @param total_colnames the universe of colnames, defaults to all the unique colname_vals
-##' @param add_intercept whether to add an intercept term ("Intercept" will be added to total_colnames)
-##' @return a sparse matrix of dim(length(total_rownames),length(total_colnames)) with (at most) length(values)
-##' non-zero values
-##' @export
-trip2sparseMatrix <- function(rowname_vals,
-                              colname_vals,
-                              values = rep(1.0,length(colname_vals)),
-                              total_rownames = unique(rowname_vals),
-                              total_colnames = unique(colname_vals),
-                              add_intercept = TRUE,
-                              csr=FALSE) {
-
-    stopifnot(
-            all.equal(length(rowname_vals), length(colname_vals)),
-            all.equal(length(rowname_vals), length(values))
-        )
-
-    bad_vals <- (!(rowname_vals %in% total_rownames)) | (!(colname_vals %in% total_colnames))
-    ## if (any(bad_vals)) {
-    ##     warning("rowname_vals and/or colname_vals not found in total_rownames/total_colnames, dropping: ",
-    ##             sum(bad_vals))
-    ## }
-
-
-    rowname_vals <- rowname_vals[!bad_vals]
-    colname_vals <- colname_vals[!bad_vals]
-    values <- values[!bad_vals]
-
-    if (add_intercept) {
-        total_colnames <- unique(c(total_colnames, "Intercept"))
-        rowname_vals <- c(rowname_vals, total_rownames)
-        colname_vals <- c(colname_vals, rlang::rep_along(total_rownames, "Intercept"))
-        values <- c(values, rlang::rep_along(total_rownames, 1.0))
-    }
-
-    row_id <- purrr::set_names(seq_along(total_rownames), total_rownames)
-    col_id <- purrr::set_names(seq_along(total_colnames), total_colnames)
-    ret_m <- Matrix::sparseMatrix(
-            i = row_id[rowname_vals],
-            j = col_id[colname_vals],
-            dims = c(length(total_rownames), length(total_colnames)),
-            x = values, dimnames = list(total_rownames, total_colnames)
-            )
-    as.matrix(ret_m)
-}
 
 
 
@@ -722,142 +558,3 @@ fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,para
     )
 }
 
-
-
-join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", by = "Gene") {
-
-    ldv <- long_df[[value]]
-    if (is.null(ldv))
-        ldv <- rep(1.0, nrow(long_df))
-
-
-    ixm <- trip2sparseMatrix(
-        rowname_vals = long_df[[by]],
-        colname_vals = long_df[[key]],
-        values = ldv,
-        total_rownames = unique(wide_df[[by]]),
-        total_colnames = unique(long_df[[key]]),
-        add_intercept = FALSE
-    )
-    dplyr::mutate(wide_df, X = ixm)
-}
-
-
-
-
-
-
-
-
-##' Run FGEM with a dataframe as input
-##' This version of FGEM takes a single dataframe with
-##' both gene-level bayes factors and gene-level features
-##' and returns a dataframe with effect size estimates
-##' for every feature.
-##' @param feat_df dataframe with data.  `feat_df` must have a column called `BF` specifying bayes factors.
-##'   Any additional columns (besides an optional gene-name column that must be titled `Gene`) are treated as annotations.
-##' @param prior_mean scalar between 0 and 1 specifying the starting
-##' prior probability (this is for initializing the EM algorithm). If unspecified, it defaults to 0.02
-##' @param Beta0 vector specifying starting guesses for effect sizes of annotations.
-##' In almost all cases the default (NULL) should be kept
-##' @param verbose Whether to print debug output
-##' @param null_beta Instead of refitting the null model, you can pass the precomputed beta for the intercept-only model
-##' @param ...
-##' @export
-FGEM_df <- function(feat_df, prior_mean = 0.02, Beta0 = NULL,verbose=FALSE,null_beta=NULL,...) {
-    null_features <- "Intercept"
-    vmessage <- verbose_message_factory(verbose)
-    BF <- dplyr::pull(feat_df, BF)
-    tmu <- (prior_mean * BF) / ((prior_mean * BF) + (1 - prior_mean))
-    if (any(!null_features %in% colnames(feat_df))) {
-        feat_df <- dplyr::mutate(feat_df, Intercept = 1)
-        null_features <- "Intercept"
-    }
-    data_mat_df <- dplyr::select(feat_df, -Gene, -BF) %>% mutate(tmu = tmu)
-    data_mat_df <- dplyr::mutate_all(data_mat_df, function(x) {
-        if (all(is.na(x))) {
-            return(rep(1, length(x)))
-        } else {
-            return(x)
-        }
-    })
-
-    if (is.null(Beta0)) {
-        vmessage("Settting Beta0...")
-        Beta0 <- stats::coefficients(stats::glm(tmu ~ . + 0,
-                                         data = data_mat_df,
-                                         family = stats::quasibinomial(link = "logit")))
-        vmessage(verbose, "Beta0: ", Beta0)
-    }
-
-    while (any(is.na(Beta0))) {
-            bad_betas <- names(Beta0)[is.na(Beta0)]
-            vmessage("Beta0 with NA:", paste0(bad_betas, collapse = ","))
-            data_mat_df <- dplyr::select(data_mat_df, -one_of(bad_betas[1]))
-
-            Beta0 <- stats::coefficients(stats::glm(tmu ~ . + 0,
-                    data = data_mat_df,
-                    family = stats::quasibinomial(link = "logit")
-            ))
-    }
-    data_mat <- data.matrix(dplyr::select(data_mat_df, -tmu))
-    vmessage("Starting FGEM:")
-    ret <- FGEM(
-            Beta0 = Beta0,
-            feat_mat = data_mat,
-            BF = BF,
-            verbose = verbose,
-            null_beta = null_beta,
-            ...
-    )
-    return(ret)
-}
-
-
-##' @title Run FGEM with a matrix as input
-##'
-##'
-##'This version of FGEM takes a single dataframe with
-##' both gene-level bayes factors and gene-level features
-##' and returns a dataframe with effect size estimates
-##' for every feature.
-##' @param Beta0 initial Beta0
-##' @param feat_mat matrix of features
-##' @param BF vector of bayes factors
-##' @param verbose whether to give print intermediate results to the user
-##' @param null_beta Instead of refitting the null model, you can pass the
-##' precomputed beta for the intercept-only model
-##' @param ... currently unused
-##' @param null_features which features are "null" (deprecated)
-##' @return results of model fit as a tibble
-##' @export
-FGEM <- function(Beta0, feat_mat, BF, verbose = FALSE, null_beta=NULL, ...) {
-    null_features = "Intercept"
-    nvmessage <- verbose_message_factory(verbose)
-    nvmessage("Starting EM on full model ...")
-    retdf <- EM_mat(Beta0, feat_mat, BF, verbose = verbose, ...) %>%
-        dplyr::mutate(nac = NA)
-    nvmessage("Starting EM on null model ...")
-    if(is.null(null_beta)){
-    retdf <- EM_mat(Beta0[null_features],
-                    feat_mat[, null_features, drop = F],
-                    BF = BF,verbose = verbose, ...) %>%
-        dplyr::select(NullLogLik = LogLik) %>%
-        dplyr::mutate(nac = NA) %>%
-        dplyr::inner_join(retdf, by = "nac") %>%
-        dplyr::select(-nac)
-    }else{
-        retdf <- mutate(retdf,
-                NullLogLik = (FGEM_Logit_log_lik(
-                        Beta = null_beta,
-                        x = feat_mat[, null_features, drop = F],
-                        B = BF
-                ))
-        ) %>% select(-nac)
-    }
-    retdf <- dplyr::mutate(retdf,
-                           Chisq = -2 * (NullLogLik - LogLik),
-                           pval = stats::pchisq(Chisq, df = ncol(feat_mat) - 1, lower.tail = F)
-                           )
-    return(retdf)
-}
