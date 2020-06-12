@@ -21,7 +21,7 @@ obj_factory <- function(feat_mat, BF, verbose) {
 
 prep_fgem <- function(X, BF, l2) {
         renv <- rlang::env(X = X, BF = BF, prec = l2)
-        rl <- make_env_obj(inherits(X, "dgCmatrix"))
+        rl <- make_env_obj(inherits(X, "dgCMatrix"))
         rl[["env"]] <- renv
         return(rl)
 }
@@ -43,26 +43,51 @@ cv_fgem <- function(X,
                     alpha = 1,
                     lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),...){
 
-
-    idf <- tibble::tibble(BF = BF, X)
     v <- 10
+    if (!inherits(X, "dgCMatrix")) {
+            idf <- tibble::tibble(BF = BF, X)
+
+            strat_fun <- function(tivx, y) {
+                tiv_df <- tibble::as_tibble(tivx)
+                tBF <- tiv_df$BF
+                tX <- tiv_df$X
+                res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
+                tBeta <- coeff_mat(res_d$Beta)
+                civx <- as.data.frame(tivx, data = "assessment")
+                aX <- civx$X
+                aBF <- civx$BF
+                cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = aX, B = aBF)
+                p(message = sprintf("cv-%d", as.integer(y)))
+                dplyr::mutate(res_d,
+                              cv_lik = cv_lik,
+                              cv_i = y,
+                              group_l1 = round(l1 / num_X, digits = 10),
+                              group_l2 = round(l2 / num_X, digits = 10))
+            }
+    }else{
+        idf <- mutate(tibble::tibble(BF = BF), idx = 1:n())
+        strat_fun <- function(tivx, y) {
+            tiv_df <- tibble::as_tibble(tivx)
+            tBF <- tiv_df$BF
+            tX <- X[tiv_df$idx, ,drop=FALSE]
+            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
+            tBeta <- coeff_mat(res_d$Beta)
+            civx <- as.data.frame(tivx, data = "assessment")
+            aX <- X[civx$idx,,drop=FALSE]
+            aBF <- civx$BF
+            cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = aX, B = aBF)
+            p(message = sprintf("cv-%d", as.integer(y)))
+            dplyr::mutate(res_d,
+                          cv_lik = cv_lik,
+                          cv_i = y,
+                          group_l1 = round(l1 / num_X, digits = 10),
+                          group_l2 = round(l2 / num_X, digits = 10))
+        }
+    }
     cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
     p <- progressr::progressor(along = cv_idf$splits)
-    furrr::future_imap_dfr(cv_idf$splits, function(tivx, y) {
-        tiv_df <- tibble::as_tibble(tivx)
-        tBF <- tiv_df$BF
-        tX <- tiv_df$X
-        res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
-        tBeta <- coeff_mat(res_d$Beta)
-        civx <- as.data.frame(tivx, data = "assessment")
-        cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = civx$X, B = civx$BF)
-        p(message = sprintf("cv-%d", as.integer(y)))
-        dplyr::mutate(res_d,
-                      cv_lik = cv_lik,
-                      cv_i = y,
-                      group_l1 = round(l1 / num_X, digits = 10),
-                      group_l2 = round(l2 / num_X, digits = 10))
-    })
+    furrr::future_imap_dfr(cv_idf$splits,strat_fun)
+
 }
 
 
@@ -78,7 +103,9 @@ coeff_mat <- function(Beta_l) {
 
 fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE, ...) {
 
-    X <- as.matrix(X)
+    if(!inherits(X,"dgCMatrix")){
+        X <- as.matrix(X)
+    }
     l <- lambda * NROW(X)
     l2 <- (1 - alpha) * l
     l1 <- (alpha) * l
@@ -237,6 +264,7 @@ fgem_bfgs <- function(X,
                       alpha = 1,
                       lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
                       add_lambda=FALSE,
+                      progress = FALSE,
                       ...){
 
     lambda <- sort(lambda, decreasing = TRUE)
@@ -246,28 +274,29 @@ fgem_bfgs <- function(X,
     reg_resl <- list()
     old_max_lambda <- lambda[1]
     max_lambda <- old_max_lambda
-    reg_resl <- purrr::prepend(reg_resl, fgem_elasticnet(X,
+    reg_resl <- purrr::prepend(reg_resl, list(fgem_elasticnet(X,
             BF,
             Beta0,
             alpha,
             max_lambda,
             verbose,
             ... = ...
-            ))
+    )))
     Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
+
     tl0n <- reg_resl[[length(reg_resl)]]$l0n
     if(add_lambda){
         while (tl0n > 1) {
                 max_lambda <- max_lambda * 2
                 lambda <- purrr::prepend(lambda, max_lambda)
-                reg_resl <- purrr::prepend(reg_resl, fgem_elasticnet(X,
+                reg_resl <- purrr::prepend(reg_resl, list(fgem_elasticnet(X,
                         BF,
                         Beta0,
                         alpha,
                         max_lambda,
                         verbose,
                         ... = ...
-                ))
+                )))
                 Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
                 tl0n <- reg_resl[[length(reg_resl)]]$l0n
         }
@@ -277,20 +306,32 @@ fgem_bfgs <- function(X,
         }
     }
     rest_lambda <- lambda[lambda < old_max_lambda]
+    if (progress) {
+            pb <- utils::txtProgressBar(style=3)
+    }
+    pc <- 0
     for (i in seq_along(rest_lambda)) {
-            l <- rest_lambda[i]
+        l <- rest_lambda[i]
+
             Beta0 <- last_completed(reg_resl)$Beta[[1]]$Beta
 
-            reg_resl <- purrr::append(reg_resl, future::future(fgem_elasticnet(X,
+            reg_resl <- append(reg_resl, future::future(fgem_elasticnet(X,
                     BF,
                     Beta0,
                     alpha,
                     l,
                     verbose,
                     ... = ...
-            )))
+                    )))
+        opc <- pc
+        npc <- num_resolved(reg_resl)
+        nc <- npc-pc
+        pc <- npc
 
-            Sys.sleep(.5)
+        if (progress) {
+                utils::setTxtProgressBar(pb, npc / length(rest_lambda))
+        }
+        Sys.sleep(.15)
     }
     return(purrr::map_dfr(reg_resl, value_wrapper))
 }

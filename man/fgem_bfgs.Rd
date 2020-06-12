@@ -7,10 +7,12 @@
 fgem_bfgs(
   X,
   BF,
-  Beta0 = c(fgem_null(BF), rep(0, ncol(X))),
+  Beta0 = c(0, rep(0, ncol(X))),
   verbose = FALSE,
   alpha = 1,
-  lambda = c(0, 5 * 10^(-(seq(6, 1, length.out = 75))), 1, 2),
+  lambda = c(2, 1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
+  add_lambda = FALSE,
+  progress = FALSE,
   ...
 )
 }
