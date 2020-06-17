@@ -27,8 +27,8 @@ inline T FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Ei
 template<typename TA,typename TB>
 inline TA logsum(const TA l1, const TB l2){
   if(l1>l2)
-    return l1 +log1p(exp(-abs(l1 - l2))) ;
-  return l2 +log1p(exp(-abs(l1 - l2))) ;
+    return l1 + log1p(exp(-abs(l1 - l2))) ;
+  return l2 + log1p(exp(-abs(l1 - l2))) ;
 }
 
 template<typename T,typename U,int neg=-1>

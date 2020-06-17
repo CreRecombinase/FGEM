@@ -8,8 +8,8 @@
 using namespace Rcpp;
 
 // fgem_grad_stan
-Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg);
-RcppExport SEXP _fgem_fgem_grad_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP) {
+Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg, const bool log_BF);
+RcppExport SEXP _fgem_fgem_grad_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP, SEXP log_BFSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -18,13 +18,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
     Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
     Rcpp::traits::input_parameter< const bool >::type neg(negSEXP);
-    rcpp_result_gen = Rcpp::wrap(fgem_grad_stan(par, X, BF, prec, neg));
+    Rcpp::traits::input_parameter< const bool >::type log_BF(log_BFSEXP);
+    rcpp_result_gen = Rcpp::wrap(fgem_grad_stan(par, X, BF, prec, neg, log_BF));
     return rcpp_result_gen;
 END_RCPP
 }
 // sp_fgem_grad_stan
-Eigen::ArrayXd sp_fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg);
-RcppExport SEXP _fgem_sp_fgem_grad_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP) {
+Eigen::ArrayXd sp_fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg, const bool log_BF);
+RcppExport SEXP _fgem_sp_fgem_grad_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP, SEXP log_BFSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -33,13 +34,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
     Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
     Rcpp::traits::input_parameter< const bool >::type neg(negSEXP);
-    rcpp_result_gen = Rcpp::wrap(sp_fgem_grad_stan(par, X, BF, prec, neg));
+    Rcpp::traits::input_parameter< const bool >::type log_BF(log_BFSEXP);
+    rcpp_result_gen = Rcpp::wrap(sp_fgem_grad_stan(par, X, BF, prec, neg, log_BF));
     return rcpp_result_gen;
 END_RCPP
 }
 // sp_fgem_lik_stan
-double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg);
-RcppExport SEXP _fgem_sp_fgem_lik_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP) {
+double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par, const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF, const double prec, const bool neg, const bool log_BF);
+RcppExport SEXP _fgem_sp_fgem_lik_stan(SEXP parSEXP, SEXP XSEXP, SEXP BFSEXP, SEXP precSEXP, SEXP negSEXP, SEXP log_BFSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -48,7 +50,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Eigen::Map<Eigen::ArrayXd> >::type BF(BFSEXP);
     Rcpp::traits::input_parameter< const double >::type prec(precSEXP);
     Rcpp::traits::input_parameter< const bool >::type neg(negSEXP);
-    rcpp_result_gen = Rcpp::wrap(sp_fgem_lik_stan(par, X, BF, prec, neg));
+    Rcpp::traits::input_parameter< const bool >::type log_BF(log_BFSEXP);
+    rcpp_result_gen = Rcpp::wrap(sp_fgem_lik_stan(par, X, BF, prec, neg, log_BF));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -116,26 +119,39 @@ BEGIN_RCPP
 END_RCPP
 }
 // make_env_obj
-Rcpp::List make_env_obj(bool sparse);
-RcppExport SEXP _fgem_make_env_obj(SEXP sparseSEXP) {
+Rcpp::List make_env_obj(bool sparse, const bool log);
+RcppExport SEXP _fgem_make_env_obj(SEXP sparseSEXP, SEXP logSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< bool >::type sparse(sparseSEXP);
-    rcpp_result_gen = Rcpp::wrap(make_env_obj(sparse));
+    Rcpp::traits::input_parameter< const bool >::type log(logSEXP);
+    rcpp_result_gen = Rcpp::wrap(make_env_obj(sparse, log));
+    return rcpp_result_gen;
+END_RCPP
+}
+// log_1p_exp
+Rcpp::NumericVector log_1p_exp(SEXP x);
+RcppExport SEXP _fgem_log_1p_exp(SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type x(xSEXP);
+    rcpp_result_gen = Rcpp::wrap(log_1p_exp(x));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_fgem_fgem_grad_stan", (DL_FUNC) &_fgem_fgem_grad_stan, 5},
-    {"_fgem_sp_fgem_grad_stan", (DL_FUNC) &_fgem_sp_fgem_grad_stan, 5},
-    {"_fgem_sp_fgem_lik_stan", (DL_FUNC) &_fgem_sp_fgem_lik_stan, 5},
+    {"_fgem_fgem_grad_stan", (DL_FUNC) &_fgem_fgem_grad_stan, 6},
+    {"_fgem_sp_fgem_grad_stan", (DL_FUNC) &_fgem_sp_fgem_grad_stan, 6},
+    {"_fgem_sp_fgem_lik_stan", (DL_FUNC) &_fgem_sp_fgem_lik_stan, 6},
     {"_fgem_fgem_lik_stan", (DL_FUNC) &_fgem_fgem_lik_stan, 6},
     {"_fgem_fgem_hess_stan", (DL_FUNC) &_fgem_fgem_hess_stan, 4},
     {"_fgem_fgem_fit_bfgs", (DL_FUNC) &_fgem_fgem_fit_bfgs, 6},
     {"_fgem_marginal_fgem_fit_bfgs", (DL_FUNC) &_fgem_marginal_fgem_fit_bfgs, 7},
-    {"_fgem_make_env_obj", (DL_FUNC) &_fgem_make_env_obj, 1},
+    {"_fgem_make_env_obj", (DL_FUNC) &_fgem_make_env_obj, 2},
+    {"_fgem_log_1p_exp", (DL_FUNC) &_fgem_log_1p_exp, 1},
     {NULL, NULL, 0}
 };
 

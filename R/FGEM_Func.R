@@ -19,8 +19,8 @@ obj_factory <- function(feat_mat, BF, verbose) {
         return(ret_f)
 }
 
-prep_fgem <- function(X, BF, l2) {
-        renv <- rlang::env(X = X, BF = BF, prec = l2)
+prep_fgem <- function(X, BF, l2,log_BF=FALSE) {
+        renv <- rlang::env(X = X, BF = BF, prec = l2, log_BF = log_BF)
         rl <- make_env_obj(inherits(X, "dgCMatrix"))
         rl[["env"]] <- renv
         return(rl)
@@ -41,22 +41,24 @@ prep_fgem <- function(X, BF, l2) {
 cv_fgem <- function(X,
                     BF,
                     alpha = 1,
-                    lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),...){
+                    lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
+                    stratify_BF=TRUE,
+                    log_BF=FALSE,
+                    ...){
 
     v <- 10
     if (!inherits(X, "dgCMatrix")) {
             idf <- tibble::tibble(BF = BF, X)
-
             strat_fun <- function(tivx, y) {
                 tiv_df <- tibble::as_tibble(tivx)
                 tBF <- tiv_df$BF
                 tX <- tiv_df$X
-                res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
+                res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
                 tBeta <- coeff_mat(res_d$Beta)
                 civx <- as.data.frame(tivx, data = "assessment")
                 aX <- civx$X
                 aBF <- civx$BF
-                cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = aX, B = aBF)
+                cv_lik <- apply(tBeta, 2, fgem_lik_stan, X = aX, BF = aBF, log_BF = log_BF)
                 p(message = sprintf("cv-%d", as.integer(y)))
                 dplyr::mutate(res_d,
                               cv_lik = cv_lik,
@@ -70,12 +72,12 @@ cv_fgem <- function(X,
             tiv_df <- tibble::as_tibble(tivx)
             tBF <- tiv_df$BF
             tX <- X[tiv_df$idx, ,drop=FALSE]
-            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha)
+            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
             tBeta <- coeff_mat(res_d$Beta)
             civx <- as.data.frame(tivx, data = "assessment")
             aX <- X[civx$idx,,drop=FALSE]
             aBF <- civx$BF
-            cv_lik <- apply(tBeta, 2, FGEM_Logit_log_lik, x = aX, B = aBF)
+            cv_lik <- apply(tBeta, 2, sp_fgem_lik_stan, X = aX, BF = aBF, log_BF = log_BF)
             p(message = sprintf("cv-%d", as.integer(y)))
             dplyr::mutate(res_d,
                           cv_lik = cv_lik,
@@ -84,9 +86,13 @@ cv_fgem <- function(X,
                           group_l2 = round(l2 / num_X, digits = 10))
         }
     }
-    cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
+    if (stratify_BF) {
+        cv_idf <- rsample::vfold_cv(idf, v = v, strata = BF)
+    } else {
+        cv_idf <- rsample::vfold_cv(idf, v = v)
+    }
     p <- progressr::progressor(along = cv_idf$splits)
-    furrr::future_imap_dfr(cv_idf$splits,strat_fun)
+    furrr::future_imap_dfr(cv_idf$splits, strat_fun)
 
 }
 
@@ -101,15 +107,16 @@ coeff_mat <- function(Beta_l) {
 
 
 
-fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE, ...) {
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE,log_BF=FALSE, ...) {
 
     if(!inherits(X,"dgCMatrix")){
         X <- as.matrix(X)
     }
+
     l <- lambda * NROW(X)
     l2 <- (1 - alpha) * l
     l1 <- (alpha) * l
-    tto <- prep_fgem(X, BF, l2)
+    tto <- prep_fgem(X, BF, l2, log_BF)
     al <- rlang::list2(...)
     pta <- proc.time()
     lbr <- rlang::exec(lbfgs::lbfgs,
@@ -265,6 +272,7 @@ fgem_bfgs <- function(X,
                       lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
                       add_lambda=FALSE,
                       progress = FALSE,
+                      log_BF=FALSE,
                       ...){
 
     lambda <- sort(lambda, decreasing = TRUE)
@@ -280,6 +288,7 @@ fgem_bfgs <- function(X,
             alpha,
             max_lambda,
             verbose,
+            log_BF=log_BF,
             ... = ...
     )))
     Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
@@ -295,6 +304,7 @@ fgem_bfgs <- function(X,
                         alpha,
                         max_lambda,
                         verbose,
+                        log_BF=log_BF,
                         ... = ...
                 )))
                 Beta0 <- reg_resl[[length(reg_resl)]]$Beta[[1]]$Beta
@@ -321,6 +331,7 @@ fgem_bfgs <- function(X,
                     alpha,
                     l,
                     verbose,
+                    log_BF=log_BF,
                     ... = ...
                     )))
         opc <- pc
@@ -382,26 +393,34 @@ EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"), 
     return(opdf)
 }
 
-log1pexp <- function(x)
-{
-  indx <- .bincode(x,
-                   c(-Inf, -37, 18, 33.3, Inf),
-                   right = TRUE,
-                   include.lowest = TRUE)
+## log1pexp <- function(x)
+## {
+##   indx <- .bincode(x,
+##                    c(-Inf, -37, 18, 33.3, Inf),
+##                    right = TRUE,
+##                    include.lowest = TRUE)
 
-  kk <- which(indx==1)
-  if( length(kk) ){  x[kk] <- exp(x[kk])  }
+##   kk <- which(indx==1)
+##   if( length(kk) ){  x[kk] <- exp(x[kk])  }
 
-  kk <- which(indx==2)
-  if( length(kk) ){  x[kk] <- log1p( exp(x[kk]) ) }
+##   kk <- which(indx==2)
+##   if( length(kk) ){  x[kk] <- log1p( exp(x[kk]) ) }
 
-  kk <- which(indx==3)
-  if( length(kk) ){  x[kk] <- x[kk] + exp(-x[kk]) }
-  return(x)
-}
+##   kk <- which(indx==3)
+##   if( length(kk) ){  x[kk] <- x[kk] + exp(-x[kk]) }
+##   return(x)
+## }
 
 logsum <- function(l1, l2) {
         pmax(l1, l2) + log1p(exp(-abs(l1 - l2)))
+}
+
+logspace_sub <- function (logx, logy)
+{
+    # log(exp(logx) - exp(logy)), avoiding unnecessary floating point error
+    dxy <- logx - logy
+    # log(2) looks like best breakpoint
+    logx + ifelse(dxy < 0.693147180559945, log(-expm1(-dxy)), log1p(-exp(-dxy)))
 }
 
 log_FGEM_log_lik <- function(Beta, x, logBF) {
@@ -418,8 +437,15 @@ FGEM_Logit_log_lik <- function(Beta, x, B) {
 
 
 gen_p <- function(Beta, x, log = FALSE) {
-        xb <- as.matrix((x %*% Beta[-1]) + Beta[1])
-        apply(xb, 2, stats::plogis, log = log)
+    if (NCOL(Beta) == 1) {
+        xb <- (x %*% Beta[-1]) + Beta[1]
+        if (is.null(ncol(xb))) {
+            xb <- as.matrix(xb)
+        }
+    }else{
+        xb <- t(t(x %*% Beta[-1, ]) + Beta[1, ])
+    }
+    apply(xb, 2, stats::plogis, log = log)
 }
 
 gen_u <- function(Beta, x, B, log = FALSE) {
@@ -427,13 +453,13 @@ gen_u <- function(Beta, x, B, log = FALSE) {
         p <- gen_p(Beta, x, log = log)
         return(as.vector((p * B) / ((p * B) + (1 - p))))
     }else{
-        return(-log1pexp(-(x %*% Beta[-1] + Beta[1]) - log(B)))
+        return(-log_1p_exp(-(x %*% Beta[-1] + Beta[1]) - log(B)))
     }
 }
 
 
 log_log_u <- function(Beta, x, logBF) {
-    c(-log1pexp(-(x %*% Beta[-1] + Beta[1]) - logBF))
+    c(-log_1p_exp(-(x %*% Beta[-1] + Beta[1]) - logBF))
 }
 
 
@@ -474,23 +500,23 @@ pmean <- function(Beta, feat_mat) {
         return(mean(pvec))
 }
 
-fgem_null <- function(BF, log = FALSE, ...) {
-    stopifnot(!log)
-    stats::optimize(FGEM_Logit_log_lik, lower = -10, upper = 100,  x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)$maximum
+fgem_null <- function(BF, log_BF = FALSE, ...) {
+    stats::optimize(fgem_lik_stan, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF, log_BF = log_BF, maximum = TRUE)$maximum
 }
 
 
-fgem_null_lik <- function(BF) {
-    stats::optimize(FGEM_Logit_log_lik, lower = -10, upper = 100,  x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)$objective
+fgem_null_lik <- function(BF,log_BF=FALSE) {
+    stats::optimize(fgem_lik_stan, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF,log_BF = log_BF, maximum = TRUE)$objective
 
 }
 
-fgem_null_fit <- function(BF, log = FALSE, ...) {
-    stopifnot(!log)
+fgem_null_fit <- function(BF, log_BF = FALSE, ...) {
     pta <- proc.time()
-    lbf <- stats::optimize(FGEM_Logit_log_lik,
+    lbf <- stats::optimize(fgem_lik_stan,
                     lower = -10,
-                    upper = 100, x = matrix(0, nrow = length(BF), ncol = 0), B = BF, maximum = TRUE)
+                    upper = 100, X = matrix(0, nrow = length(BF), ncol = 0), BF = BF,
+                    log_BF=log_BF,
+                    maximum = TRUE)
     ptb <- (proc.time() - pta)["elapsed"]
     return(tibble::tibble_row(
                        Beta = list(tibble::tibble(
@@ -576,12 +602,13 @@ fgem <- function(x,
 ##' @param BF vector of bayes factors
 ##' @param verbose Whether to print debug output
 ##' @export
-fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,parallel=FALSE, ...) {
-    null_lik <-fgem_null_lik(BF)
+fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,parallel=FALSE,log_BF=FALSE, ...) {
+    null_lik <-fgem_null_lik(BF,log_BF=log_BF)
     if (parallel) {
-        results <- future.apply::future_apply(X, 2, fgem_elasticnet, BF = BF)
+#        X <- as.matrix(X)
+        results <- future.apply::future_apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF)
     } else {
-        results <- apply(X, 2, fgem_elasticnet, BF = BF)
+        results <- apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF)
     }
     if (!is.null(colnames(X))) {
             results <- purrr::map2_dfr(results, colnames(X), function(x, y) {

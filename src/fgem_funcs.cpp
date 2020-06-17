@@ -6,8 +6,6 @@
 //[[Rcpp::plugins(unwindProtect)]]
 //[[Rcpp::depends(BH)]]
 
-
-
 typedef Rcpp::NumericVector (*efuncPtr)(SEXP,SEXP);
 
 
@@ -15,86 +13,77 @@ typedef Rcpp::NumericVector (*efuncPtr)(SEXP,SEXP);
 //' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 //' @export
 //[[Rcpp::export]]
-Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false){
+Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
   using Mt = Eigen::MatrixXd;
   Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
   Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
   double fx=0;
-  if(!neg){
-    fgem_lik<Mt,1> f(X,BF,prec);
-    stan::math::gradient(f,param,fx,grad_fx);
+
+  if(X.cols()!=par.size()-1)
+    Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
+  }
+
+
+
+  if(!log_BF){
+    if(!neg){
+      fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }else{
+      fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }
   }else{
-    fgem_lik<Mt,-1> f(X,BF,prec);
-    stan::math::gradient(f,param,fx,grad_fx);
+    if(!neg){
+      log_fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }else{
+      log_fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }
   }
   return(grad_fx.array());
 }
-
-// 
-// 
-// SEXP fgem_deviance(SEXP y, SEXP mu, SEXP wt)
-// {
-//     int i, n = LENGTH(y), lmu = LENGTH(mu), lwt = LENGTH(wt), nprot = 1;
-//     SEXP ans;
-//     double mui, yi, *rmu, *ry, *rwt, *rans;
-// 
-//     if (!isReal(y)) {y = PROTECT(coerceVector(y, REALSXP)); nprot++;}
-//     ry = REAL(y);
-//     ans = PROTECT(shallow_duplicate(y));
-//     rans = REAL(ans);
-//     if (!isReal(mu)) {mu = PROTECT(coerceVector(mu, REALSXP)); nprot++;}
-//     if (!isReal(wt)) {wt = PROTECT(coerceVector(wt, REALSXP)); nprot++;}
-//     rmu = REAL(mu);
-//     rwt = REAL(wt);
-//     if (lmu != n && lmu != 1)
-// 	error(_("argument %s must be a numeric vector of length 1 or length %d"),
-// 	      "mu", n);
-//     if (lwt != n && lwt != 1)
-// 	error(_("argument %s must be a numeric vector of length 1 or length %d"),
-// 	      "wt", n);
-//     /* Written separately to avoid an optimization bug on Solaris cc */
-//     if(lmu > 1) {
-// 	for (i = 0; i < n; i++) {
-// 	    mui = rmu[i];
-// 	    yi = ry[i];
-// 	    rans[i] =  rwt[lwt > 1 ? i : 0] *
-//               mui*yi + (1-mui);
-// 	}
-//     } else {
-// 	mui = rmu[0];
-// 	for (i = 0; i < n; i++) {
-// 	    yi = ry[i];
-//             rans[i] =  log(rwt[lwt > 1 ? i : 0] *
-//                            (mui*yi + (1-mui)));
-// 	}
-//     }
-// 
-//     UNPROTECT(nprot);
-//     return ans;
-// }
-//   
-    
 
 
 //' Gradient for FGEM likelihood
 //' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 //' @export
 //[[Rcpp::export]]
-Eigen::ArrayXd sp_fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false){
+Eigen::ArrayXd sp_fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
   using Mt = Eigen::SparseMatrix<double>;
-  Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
+Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
   Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
+
+  if(X.cols()!=par.size()-1)
+    Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
+  }
+
+
   double fx=0;
-  if(!neg){
-    fgem_lik<Mt,1> f(X,BF,prec);
-    stan::math::gradient(f,param,fx,grad_fx);
+  if(!log_BF){
+    if(!neg){
+      fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }else{
+      fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }
   }else{
-    fgem_lik<Mt,-1> f(X,BF,prec);
-    stan::math::gradient(f,param,fx,grad_fx);
+    if(!neg){
+      log_fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }else{
+      log_fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::gradient(f,param,fx,grad_fx);
+    }
   }
   return(grad_fx.array());
 }
-
 
 
 //'
@@ -103,16 +92,23 @@ Eigen::ArrayXd sp_fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eige
 //'
 //' @export
 //[[Rcpp::export]]
-double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false){
+double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
   Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
   using Mt = Eigen::SparseMatrix<double>;
   if(X.cols()!=par.size()-1)
     Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
-  if(!neg){
-    return fgem_lik<Mt,1>(X,BF,prec)(param);
-  }else{
-    return fgem_lik<Mt,-1>(X,BF,prec)(param);
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
   }
+
+  if(log_BF){
+    if(!neg)
+      return log_fgem_lik<Mt,1>(X,BF,prec)(param);
+    return log_fgem_lik<Mt,-1>(X,BF,prec)(param);
+  }
+  if(!neg)
+    return fgem_lik<Mt,1>(X,BF,prec)(param);
+  return fgem_lik<Mt,-1>(X,BF,prec)(param);
 }
 
 //[[Rcpp::export]]
@@ -121,6 +117,9 @@ double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen
   using Mt = Eigen::MatrixXd;
   if(X.cols()!=par.size()-1)
     Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
+  }
   if(log_BF){
     if(!neg)
       return log_fgem_lik<Mt,1>(X,BF,prec)(param);
@@ -289,9 +288,12 @@ Rcpp::NumericVector sp_grad_ext(SEXP xs, SEXP env){
   auto BF = Rcpp::as<Eigen::Map<Eigen::ArrayXd >>(e["BF"]);
   auto prec = Rcpp::as<double>(e["prec"]);
   auto X =Rcpp::as<SEXP>(e["X"]);
-
   auto sX = Rcpp::as<Eigen::Map<Eigen::SparseMatrix<double>>>(X);
-  return Rcpp::wrap(sp_fgem_grad_stan(par,sX,BF,prec,true));
+
+  auto log_sexp = Rcpp::as<SEXP>(e["log_BF"]);
+  bool logs = Rcpp::as<bool>(log_sexp);
+
+  return Rcpp::wrap(sp_fgem_grad_stan(par,sX,BF,prec,true,logs));
 }
 
 
@@ -302,7 +304,9 @@ Rcpp::NumericVector grad_ext(SEXP xs, SEXP env){
   auto prec = Rcpp::as<double>(e["prec"]);
   auto X =Rcpp::as<SEXP>(e["X"]);
   auto sX = Rcpp::as<Eigen::Map<Eigen::MatrixXd>>(X);
-  return Rcpp::wrap(fgem_grad_stan(par,sX,BF,prec,true));
+  auto log_sexp = Rcpp::as<SEXP>(e["log_BF"]);
+  bool logs = Rcpp::as<bool>(log_sexp);
+  return Rcpp::wrap(fgem_grad_stan(par,sX,BF,prec,true,logs));
 }
 
 
@@ -314,7 +318,10 @@ Rcpp::NumericVector lik_ext(SEXP xs, SEXP env){
   auto prec = Rcpp::as<double>(e["prec"]);
   auto X =Rcpp::as<SEXP>(e["X"]);
   auto sX = Rcpp::as<Eigen::Map<Eigen::MatrixXd >>(X);
-  return Rcpp::wrap(fgem_lik_stan(par,sX,BF,prec,true));
+
+  auto log_sexp = Rcpp::as<SEXP>(e["log_BF"]);
+  bool logs = Rcpp::as<bool>(log_sexp);
+  return Rcpp::wrap(fgem_lik_stan(par,sX,BF,prec,true,logs));
 }
 
 
@@ -325,18 +332,49 @@ Rcpp::NumericVector sp_lik_ext(SEXP xs, SEXP env){
   auto prec = Rcpp::as<double>(e["prec"]);
   auto X =Rcpp::as<SEXP>(e["X"]);
   auto sX = Rcpp::as<Eigen::Map<Eigen::SparseMatrix<double>>>(X);
-  return Rcpp::wrap(sp_fgem_lik_stan(par,sX,BF,prec,true));
+
+  auto log_sexp = Rcpp::as<SEXP>(e["log_BF"]);
+  bool logs = Rcpp::as<bool>(log_sexp);
+
+  return Rcpp::wrap(sp_fgem_lik_stan(par,sX,BF,prec,true,logs));
 }
 
 
 //[[Rcpp::export]]
-Rcpp::List make_env_obj(bool sparse=false){
+Rcpp::List make_env_obj(bool sparse=false,const bool log=false){
   using namespace Rcpp;
-  if(!sparse){
-    return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&lik_ext)),
-                        _["grad"]=XPtr<efuncPtr>(new efuncPtr(&grad_ext)));
+  if(!log){
+    if(!sparse){
+      return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&lik_ext)),
+                          _["grad"]=XPtr<efuncPtr>(new efuncPtr(&grad_ext)));
+    }else{
+      return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&sp_lik_ext)),
+                          _["grad"]=XPtr<efuncPtr>(new efuncPtr(&sp_grad_ext)));
+    }
   }else{
-    return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&sp_lik_ext)),
-                        _["grad"]=XPtr<efuncPtr>(new efuncPtr(&sp_grad_ext)));
+    if(!sparse){
+      return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&lik_ext)),
+                          _["grad"]=XPtr<efuncPtr>(new efuncPtr(&grad_ext)));
+    }else{
+      return List::create(_["lik"]=XPtr<efuncPtr>(new efuncPtr(&sp_lik_ext)),
+                          _["grad"]=XPtr<efuncPtr>(new efuncPtr(&sp_grad_ext)));
+    }
   }
+}
+
+
+
+
+//[[Rcpp::export]]
+Rcpp::NumericVector log_1p_exp(SEXP x){
+
+  SEXP rx = Rcpp::clone(x);
+  double *xb= REAL(rx);
+  const size_t p = LENGTH(rx);
+  double *xe= xb+p;
+  std::transform(xb,xe,xb,Rf_log1pexp);
+  return rx;
+  // return Rcpp::NumericVector::import_transform(x.begin(),x.end(),[](const double d){
+  //                                                                  return(Rf_log1pexp(d));
+  //                                                                });
 }

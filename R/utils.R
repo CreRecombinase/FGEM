@@ -187,11 +187,13 @@ predict_uniform_prior <- function(BF, Genes = names(BF)) {
 }
 
 BF2posterior <- function(BF,Genes=names(BF), prior = predict_uniform_prior(BF,Genes)) {
-    (prior * BF) / ((prior * BF) + (1 - prior))
+    return((prior * BF) / ((prior * BF) + (1 - prior)))
 }
 
 
-
+log_BF2_logpost <- function(logBF, xb) {
+        apply(xb - logBF, 2, log_1p_exp)
+}
 
 
 
@@ -238,8 +240,8 @@ trip2sparseMatrix <- function(rowname_vals,
     row_id <- purrr::set_names(seq_along(total_rownames), total_rownames)
     col_id <- purrr::set_names(seq_along(total_colnames), total_colnames)
     ret_m <- Matrix::sparseMatrix(
-            i = row_id[rowname_vals],
-            j = col_id[colname_vals],
+            i = row_id[as.character(rowname_vals)],
+            j = col_id[as.character(colname_vals)],
             dims = c(length(total_rownames), length(total_colnames)),
             x = values, dimnames = list(total_rownames, total_colnames)
             )

@@ -4,15 +4,15 @@
 #' Gradient for FGEM likelihood
 #' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 #' @export
-fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE) {
-    .Call('_fgem_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg)
+fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
 }
 
 #' Gradient for FGEM likelihood
 #' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 #' @export
-sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE) {
-    .Call('_fgem_sp_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg)
+sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
 }
 
 #'
@@ -20,8 +20,8 @@ sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE) {
 #' for the FGEM likelihood
 #'
 #' @export
-sp_fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE) {
-    .Call('_fgem_sp_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg)
+sp_fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
 }
 
 fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
@@ -56,7 +56,11 @@ marginal_fgem_fit_bfgs <- function(X, BF, prec = 0.0, epsilon = 1e-6, max_iter =
     .Call('_fgem_marginal_fgem_fit_bfgs', PACKAGE = 'fgem', X, BF, prec, epsilon, max_iter, progress, log_BF)
 }
 
-make_env_obj <- function(sparse = FALSE) {
-    .Call('_fgem_make_env_obj', PACKAGE = 'fgem', sparse)
+make_env_obj <- function(sparse = FALSE, log = FALSE) {
+    .Call('_fgem_make_env_obj', PACKAGE = 'fgem', sparse, log)
+}
+
+log_1p_exp <- function(x) {
+    .Call('_fgem_log_1p_exp', PACKAGE = 'fgem', x)
 }
 
