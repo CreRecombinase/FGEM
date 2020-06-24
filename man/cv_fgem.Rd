@@ -10,6 +10,7 @@ cv_fgem(
   alpha = 1,
   lambda = c(2, 1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
   stratify_BF = TRUE,
+  log_BF = FALSE,
   ...
 )
 }

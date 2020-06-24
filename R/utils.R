@@ -1,39 +1,29 @@
-verbose_message_factory <- function(verbose) {
-    if (verbose) {
-        function(...) {
-            message(...)
-        }
-    } else {
-        function(...) {
-            invisible(NULL)
-        }
-    }
-}
-
 summ_beta <- function(fit_l, weights = rep(1 / length(fit_l), length(fit_l)), drop_0 = FALSE) {
     if (drop_0) {
         list(tibble::tibble(w = weights, Beta = fit_l) %>%
              tidyr::unnest(Beta) %>%
-             dplyr::filter(Beta != 0) %>%
              dplyr::group_by(feature_name) %>%
+             dplyr::mutate(Beta = dplyr::if_else(rep(any(Beta == 0),
+                                                     length(Beta)), 0, Beta)) %>%
+
              dplyr::summarise(
-                           Beta_sd = sd(Beta),
-                        Beta = stats::weighted.mean(Beta, w = w / sum(w))
-                       ))
+                        Beta_sd = sd(Beta),
+                        Beta = mean(Beta)
+                    ))
     }else{
         list(tibble::tibble(w = weights, Beta = fit_l) %>%
-                tidyr::unnest(Beta) %>%
-                dplyr::group_by(feature_name) %>%
-                dplyr::summarise(
+             tidyr::unnest(Beta) %>%
+             dplyr::group_by(feature_name) %>%
+             dplyr::summarise(
                         Beta_sd = sd(Beta),
-                        Beta = stats::weighted.mean(Beta, w = w / sum(w))
-                ))
+                        Beta = mean(Beta)
+                    ))
 
     }
 }
 
 
-summarise_cv_lik <- function(fit,summarise_Beta=TRUE) {
+summarise_cv_lik <- function(fit, summarise_Beta = TRUE) {
     mgrps <- dplyr::groups(fit)
     if (!summarise_Beta) {
         fit %>%
@@ -49,7 +39,6 @@ summarise_cv_lik <- function(fit,summarise_Beta=TRUE) {
             dplyr::group_by(group_l1, group_l2, .add = TRUE) %>%
             dplyr::summarize(
                        Beta = summ_beta(Beta,
-                                        weights = cv_lik / sum(cv_lik),
                                         drop_0 = FALSE),
                        cv_sum = sum(cv_lik),
                        l0_mean = mean(l0n),
@@ -103,6 +92,80 @@ predict_null_fgem <- function(BF, log = TRUE) {
 }
 
 
+#' Calculate fgem gradient
+#'
+#' @param par Beta parameter
+#' @param X matrix (can be Matrix from Matrix package)
+#' @param BF bayes factor (or log Bayes factor if log_BF=TRUE)
+#' @param prec L2 regularization
+#' @param log_BF boolean indicating whether BF should be treated as log_BF
+#'
+#' @return vector with gradients
+#' @export
+#'
+fgem_grad <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+    UseMethod("fgem_grad",X)
+}
+
+
+fgem_grad.matrix <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+    -fgem_grad_stan(par,X,BF,prec,TRUE,log_BF=log_BF)
+}
+
+fgem_grad.dgCMatrix <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+        -sp_fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF)
+}
+
+fgem_grad.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+    if (inherits(X, "matrix")) {
+            return(-fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+    }
+    if (inherits(X, "dgCMatrix")) {
+        return(-sp_fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+    }
+    stop(paste0("fgem_grad not implemented for type: ", class(X)))
+}
+
+
+
+
+
+#' Calculate fgem gradient
+#'
+#' @param par Beta parameter
+#' @param X matrix (can be Matrix from Matrix package)
+#' @param BF bayes factor (or log Bayes factor if log_BF=TRUE)
+#' @param prec L2 regularization
+#' @param log_BF boolean indicating whether BF should be treated as log_BF
+#'
+#' @return vector with gradients
+#' @export
+#'
+fgem_hess <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+    UseMethod("fgem_hess",X)
+}
+
+
+fgem_hess.matrix <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+    -fgem_hess_stan(par,X,BF,prec,TRUE,log_BF=log_BF)
+}
+
+fgem_hess.dgCMatrix <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+        -sp_fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF)
+}
+
+fgem_hess.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+    if (inherits(X, "matrix")) {
+            return(-fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+    }
+    if (inherits(X, "dgCMatrix")) {
+        return(-sp_fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+    }
+    stop(paste0("fgem_hess not implemented for type: ", class(X)))
+}
+
+
+    
 
 
 join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", by = "Gene") {
@@ -171,8 +234,6 @@ predict_fgem <- function(fit, x, log = FALSE) {
         beta_df <- fit$Beta[[1]]
         predict_long_df(beta_df, x, log = log)
 }
-
-
 
 empty_x <- function(x, rownames = names(x)) {
         nr <- length(x)
@@ -262,4 +323,24 @@ df2sparse <- function(long_df,rownames="Gene",colnames="feature_name",value="val
         ldv <- rep(1.0, nrow(long_df))
 
     trip2sparseMatrix(rnv, cnv, ldv, total_rownames = total_rownames, add_intercept = FALSE)
+}
+
+
+R_Log1_Exp <- function(x){
+    dplyr::if_else(x > -(log(2)),log(expm1(x)),log1p(-exp(x)))
+}
+
+log1mexp <- function(x) {
+        R_Log1_Exp(x)
+}
+
+##' @title calculate log loss for log-valued prediction
+##'
+##'
+##' @param lp (natural) log-scale probablilty values
+##' @param x integer (or logical) of length equal to lp indicating
+##' @return
+##' @export
+log_pbernoulli <- function(lp,x){
+    sum(x*lp+(1-x)*R_Log1_Exp(lp))
 }

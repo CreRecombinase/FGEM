@@ -1,55 +1,60 @@
-library(testthat)
-library(FGEM)
+context("simulation")
 
+test_that("FGEM works on simulated data",{
+  g <- 2000
+  sz <- 200
+  X <- cbind(rbinom(n = g,size=1,prob=0.5),
+             rbinom(n = g,size=1,prob=0.1),
+             rbinom(n = g,size=1,prob=0.4))
+  storage.mode(X) <- "numeric"
+  eff <- c(-3,0,5,5)  
+  fn <- c("Intercept","V1","V2","V3")
+  true_value <- tibble::tibble(feature_name=fn,true_Beta=eff)  
+  pr <- fgem:::gen_p(eff,X)
+  y <- rbinom(g,size=1,prob=pr)
+  q <- dplyr::if_else(y==1,0.5,runif(g))
+  xg <- rbinom(g,size=sz,prob = q)
+  pxz1 <- dbinom(x = xg,size = sz,prob=0.5)
+  pxz2 <- beta((xg+1),sz-xg+1)*choose(sz,xg)
+  bf <- log(pxz1)-log(pxz2)
+  lambda <- c(2, 1, 5 * 10^(-(seq(1, 
+    9, length.out = 75))), 0)
+  tr <- fgem:::fgem_bfgs(X,bf,log_BF = TRUE,alpha=0.9,lambda=lambda)
+  progressr::with_progress({
+  cvtr <- fgem:::cv_fgem(X,bf,alpha=0.9,lambda=lambda,log_BF = TRUE)
+  })
+  summ_cv <- fgem:::summarise_cv_lik(cvtr)
 
-
-test_that("FGEM estimation machinery works with uninformative BF and a single (constant) annotation", {
-  x <- cbind(rep(1, 3))
-  sX <- Matrix::spMatrix(3,1,1:3,rep(1,3),rep(1,3))
-  xdf <- tibble(a=rep(1,3))
-  sX <- Matrix::sparse.model.matrix(~ a-1, xdf)
-  B <- rep(2, 3)
-  Beta <- c(2)
-  fgem:::FGEM_Logit(Beta = Beta, x = x, B = B)
-  fgem:::FGEM_Logit(Beta = Beta, x = sX, B = B)
+comp_df <-   tibble(l1=tr$lambda,Beta=map2(rev(summ_cv$Beta),tr$Beta,function(cv_df,ncv_df){
+    bind_rows(transmute(cv_df,Beta=Beta,feature_name=feature_name,model="cv"),
+               transmute(ncv_df,Beta=Beta,feature_name=feature_name,model="ncv"))
+  }),lik=summ_cv$cv_sum) %>% unnest(Beta)
   
-  expect_equivalent(fgem:::FGEM_Logit(Beta = 1, x = cbind(rep(1, 3)), B = rep(1, 3)), 1)
-  expect_equivalent(fgem:::FGEM_Logit(Beta = 2, x = cbind(rep(1, 3)), B = rep(1, 3)), 2)
-  expect_equivalent(fgem:::FGEM_Logit(Beta = -3.5, x = cbind(rep(1, 3)), B = rep(1, 3)), -3.5)
-  expect_equivalent(fgem:::FGEM_Logit(Beta = 0, x = cbind(rep(1, 3)), B = rep(1, 3)), 0)
+  unnest(summ_cv,Beta) %>% 
+    filter(group_l1 > 0) %>% 
+    inner_join(true_value) %>% 
+    ggplot(aes(x = group_l1, y = Beta, col = feature_name))+
+    geom_line()+
+    scale_x_log10()+
+    geom_hline(aes(yintercept = true_Beta, col = feature_name, linetype = feature_name))
+  filter(summ_cv, group_l1 > 0) %>% 
+    ggplot(aes(x=group_l1,y=cv_sum))+geom_point()+scale_x_log10()
+  
+  unnest(tr,Beta) %>% 
+    inner_join(true_value) %>% 
+    ggplot(aes(x=lambda,y=Beta,col=feature_name))+
+    geom_line()+
+    scale_x_log10()+
+    geom_hline(aes(yintercept=true_Beta,col=feature_name,linetype=feature_name))
+  preds <- purrr::map(tr$Beta,~fgem:::gen_u(Beta = .x$Beta,x = X,B = bf))
+
+tr <- mutate(tr,Beta=purrr::map(Beta,
+                           ~mutate(.x,grad=fgem:::fgem_grad_stan(Beta,X,bf))))
+  
+  hess_mats <- purrr::map(tr$Beta,
+                          ~fgem:::fgem_hess_stan(.x$Beta,X,bf))
 })
 
 
 
 
-
-test_that("FGEM estimation machinery works with uninformative BF and two (binary, continuous, or constant) annotations", {
-  expect_equivalent(fgem:::FGEM_Logit(
-    Beta = c(-2, 1),
-    x = cbind(rep(c(1), 6), rep(c(0, 1), 3)),
-    B = rep(1, 6)
-  ), c(-2, 1))
-  expect_equivalent(fgem:::FGEM_Logit(
-    Beta = c(1, -2),
-    x = cbind(rep(c(1), 6), rep(c(0, 1), 3)),
-    B = rep(1, 6)
-  ), c(1, -2))
-  expect_equivalent(fgem:::FGEM_Logit(
-    Beta = c(-2, 1),
-    x = cbind(runif(100), runif(100)),
-    B = rep(1, 100)
-  ), c(-2, 1))
-  expect_equivalent(fgem:::FGEM_Logit(
-    Beta = c(-2, 1),
-    x = cbind(rep(c(0, 1), 50), runif(100)),
-    B = rep(1, 100)
-  ), c(-2, 1))
-})
-
-test_that("computing log likelihood works in C++ and R ", {
-  Beta <- runif(2)
-  x <- cbind(1, t(t(runif(5))))
-  B <- runif(5)
-  expect_equal(fgem:::FGEM_Logit_log_lik_cpp(Beta, x, B), fgem:::FGEM_Logit_log_lik(Beta, x, B))
-  # mres <- microbenchmark(R=FGEM_Logit_log_lik(Beta,x,B),cpp=FGEM_Logit_log_lik_cpp(Beta,x,B))
-})

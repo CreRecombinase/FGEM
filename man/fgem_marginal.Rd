@@ -15,6 +15,7 @@ fgem_marginal(
   epsilon = 1e-06,
   max_iter = 150,
   parallel = FALSE,
+  log_BF = FALSE,
   ...
 )
 }

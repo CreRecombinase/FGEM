@@ -13,6 +13,7 @@ fgem_bfgs(
   lambda = c(2, 1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
   add_lambda = FALSE,
   progress = FALSE,
+  log_BF = FALSE,
   ...
 )
 }

@@ -86,6 +86,98 @@ Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
 }
 
 
+
+
+//' evd_dnorm_hess_stan
+//'
+//' This is an attempt to use stan's AD features to calculate a hessian
+//' for the RSSp likelihood
+//'
+//' @export
+//[[Rcpp::export]]
+Eigen::MatrixXd sp_fgem_hess_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::SparseMatrix<double>> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
+
+  using Mt = Eigen::SparseMatrix<double>;
+  Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
+  Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> H_fx;
+  if(X.cols()!=par.size()-1)
+    Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
+  }
+
+  double fx=0;
+  if(!log_BF){
+    if(!neg){
+      fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }else{
+      fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }
+  }else{
+    if(!neg){
+      log_fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }else{
+      log_fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }
+  }
+  return (H_fx);
+}
+
+
+
+
+//' evd_dnorm_hess_stan
+//'
+//' This is an attempt to use stan's AD features to calculate a hessian
+//' for the RSSp likelihood
+//'
+//' @export
+//[[Rcpp::export]]
+Eigen::MatrixXd fgem_hess_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
+    using Mt = Eigen::MatrixXd;
+
+  Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
+  Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> H_fx;
+  if(X.cols()!=par.size()-1)
+    Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
+  if(X.rows()!=BF.size()){
+    Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
+  }
+
+  double fx=0;
+  if(!log_BF){
+    if(!neg){
+      fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }else{
+      fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }
+  }else{
+    if(!neg){
+      log_fgem_lik<Mt,1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }else{
+      log_fgem_lik<Mt,-1> f(X,BF,prec);
+      stan::math::hessian(f, param, fx, grad_fx, H_fx);
+    }
+  }
+  return (H_fx);
+}
+
+
+
+
+
+
+
+
 //'
 //' This is an attempt to use stan's AD features to calculate a gradient
 //' for the FGEM likelihood
@@ -113,8 +205,9 @@ double sp_fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Ei
 
 //[[Rcpp::export]]
 double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const bool neg=false,const bool log_BF=false){
+    using Mt = Eigen::MatrixXd;
   Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
-  using Mt = Eigen::MatrixXd;
+
   if(X.cols()!=par.size()-1)
     Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
   if(X.rows()!=BF.size()){
@@ -129,69 +222,6 @@ double fgem_lik_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen
     return fgem_lik<Mt,1>(X,BF,prec)(param);
   return fgem_lik<Mt,-1>(X,BF,prec)(param);
 }
-
-
-
-//' evd_dnorm_hess_stan
-//' 
-//' This is an attempt to use stan's AD features to calculate a hessian 
-//' for the RSSp likelihood
-//'
-//' @export
-//[[Rcpp::export]]
-Eigen::MatrixXd fgem_hess_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::Map<Eigen::MatrixXd> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0){
-
-  if(X.cols()!=par.size()-1)
-    Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(X.cols()+1)+"), and not: "+std::to_string(par.size()));
-  fgem_lik<Eigen::MatrixXd,1> f(X,BF,prec);
-  double fx=0;
-  Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
-  Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
-  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> H_fx;
-  stan::math::hessian(f, param, fx, grad_fx, H_fx);
-  return (H_fx);
-}
-
-
-
-
-//' fit fgem with bfgs
-//'
-//' fit fgem using c++ BFGS algorithm
-//'
-//' @export
-//[[Rcpp::export]]
-Rcpp::List fgem_fit_bfgs(const Eigen::ArrayXd par,SEXP X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0,const double epsilon=1e-6, const int max_iter=100){
-  LBFGSpp::LBFGSParam<double> param;
-  param.epsilon = epsilon;
-  param.max_iterations = max_iter;
-  //  LBFGSpp::LineSearchMoreThuente<double>
-  LBFGSpp::LBFGSSolver<double> solver(param);
-  Eigen::VectorXd x = par;
-  double fx;
-  int niter=0;
-  if(Rf_inherits(X,"dgCMatrix")){
-  // Create solver and function object
-    auto sX = Rcpp::as<Eigen::Map<Eigen::SparseMatrix<double>>>(X);
-    if(sX.cols()!=par.size()-1)
-      Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(sX.cols()+1)+"), and not: "+std::to_string(par.size()));
-    fgem_bfg<Eigen::SparseMatrix<double>> fun(fgem_lik<Eigen::SparseMatrix<double>,-1>(sX,BF,prec));
-    niter = solver.minimize(fun,x,fx);
-  }else{
-    auto sX = Rcpp::as<Eigen::Map<Eigen::MatrixXd>>(X);
-    if(sX.cols()!=par.size()-1)
-      Rcpp::stop("par must be of length: NCOL(x)+1 ("+std::to_string(sX.cols()+1)+"), and not: "+std::to_string(par.size()));
-    fgem_bfg<Eigen::MatrixXd> fun(fgem_lik<Eigen::MatrixXd,-1>(sX,BF,prec));
-    niter = solver.minimize(fun,x,fx);
-  }
-  // x will be overwritten to be the best point found
-  using namespace Rcpp;
-  return List::create(_["iter"]=Rcpp::wrap(niter),
-                      _["par"]=Rcpp::wrap(x),
-                      _["obj"]=Rcpp::wrap(fx));
-}
-
-   
 
  
 //' fit every column of X with the BFGS algorithm

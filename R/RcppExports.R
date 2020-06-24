@@ -15,6 +15,26 @@ sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALS
     .Call('_fgem_sp_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
 }
 
+#' evd_dnorm_hess_stan
+#'
+#' This is an attempt to use stan's AD features to calculate a hessian
+#' for the RSSp likelihood
+#'
+#' @export
+sp_fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+}
+
+#' evd_dnorm_hess_stan
+#'
+#' This is an attempt to use stan's AD features to calculate a hessian
+#' for the RSSp likelihood
+#'
+#' @export
+fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+}
+
 #'
 #' This is an attempt to use stan's AD features to calculate a gradient
 #' for the FGEM likelihood
@@ -26,16 +46,6 @@ sp_fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE
 
 fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
     .Call('_fgem_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
-}
-
-#' evd_dnorm_hess_stan
-#' 
-#' This is an attempt to use stan's AD features to calculate a hessian 
-#' for the RSSp likelihood
-#'
-#' @export
-fgem_hess_stan <- function(par, X, BF, prec = 0.0) {
-    .Call('_fgem_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, prec)
 }
 
 #' fit fgem with bfgs

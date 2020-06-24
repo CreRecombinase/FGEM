@@ -4,9 +4,9 @@
 \alias{fgem_hess_stan}
 \title{evd_dnorm_hess_stan}
 \usage{
-fgem_hess_stan(par, X, BF, prec = 0)
+fgem_hess_stan(par, X, BF, prec = 0, neg = FALSE, log_BF = FALSE)
 }
 \description{
-This is an attempt to use stan's AD features to calculate a hessian 
+This is an attempt to use stan's AD features to calculate a hessian
 for the RSSp likelihood
 }

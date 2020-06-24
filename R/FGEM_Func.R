@@ -1,24 +1,3 @@
-FGEM_Logit <- function(Beta, x, B, ctrl = list()) {
-        uvec <- gen_u(Beta, x, B)
-
-        fastglm::fastglmPure(
-                x = as.matrix(x),
-                y = uvec,
-                family = stats::quasibinomial(link = "logit")
-        )[["coefficients"]]
-}
-
-obj_factory <- function(feat_mat, BF, verbose) {
-        tfm <- feat_mat
-        tbf <- BF
-        mvmessage <- verbose_message_factory(verbose)
-        ret_f <- function(par, ...) {
-            ret <- (-FGEM_Logit_log_lik(Beta = par, x = tfm, B = tbf))
-            return(-ret)
-        }
-        return(ret_f)
-}
-
 prep_fgem <- function(X, BF, l2,log_BF=FALSE) {
         renv <- rlang::env(X = X, BF = BF, prec = l2, log_BF = log_BF)
         rl <- make_env_obj(inherits(X, "dgCMatrix"))
@@ -47,7 +26,11 @@ cv_fgem <- function(X,
                     ...){
 
     v <- 10
+
     if (!inherits(X, "dgCMatrix")) {
+      fgls <- function(par, x, BF, prec = 0, neg = FALSE, log_BF = FALSE){
+        fgem_lik_stan(par,x,BF,prec,neg,log_BF)
+      }
             idf <- tibble::tibble(BF = BF, X)
             strat_fun <- function(tivx, y) {
                 tiv_df <- tibble::as_tibble(tivx)
@@ -58,7 +41,7 @@ cv_fgem <- function(X,
                 civx <- as.data.frame(tivx, data = "assessment")
                 aX <- civx$X
                 aBF <- civx$BF
-                cv_lik <- apply(tBeta, 2, fgem_lik_stan, X = aX, BF = aBF, log_BF = log_BF)
+                cv_lik <- apply(X=tBeta,MARGIN= 2,FUN= fgls, x = aX, BF = aBF, log_BF = log_BF)
                 p(message = sprintf("cv-%d", as.integer(y)))
                 dplyr::mutate(res_d,
                               cv_lik = cv_lik,
@@ -67,18 +50,21 @@ cv_fgem <- function(X,
                               group_l2 = round(l2 / num_X, digits = 10))
             }
     }else{
-        idf <- mutate(tibble::tibble(BF = BF), idx = 1:n())
-        strat_fun <- function(tivx, y) {
-            tiv_df <- tibble::as_tibble(tivx)
-            tBF <- tiv_df$BF
-            tX <- X[tiv_df$idx, ,drop=FALSE]
-            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
-            tBeta <- coeff_mat(res_d$Beta)
-            civx <- as.data.frame(tivx, data = "assessment")
-            aX <- X[civx$idx,,drop=FALSE]
-            aBF <- civx$BF
-            cv_lik <- apply(tBeta, 2, sp_fgem_lik_stan, X = aX, BF = aBF, log_BF = log_BF)
-            p(message = sprintf("cv-%d", as.integer(y)))
+      idf <- mutate(tibble::tibble(BF = BF), idx = 1:n())
+      fgls <- function(par, x, BF, prec = 0, neg = FALSE, log_BF = FALSE){
+        sp_fgem_lik_stan(par,x,BF,prec,neg,log_BF)
+      }
+      strat_fun <- function(tivx, y) {
+        tiv_df <- tibble::as_tibble(tivx)
+        tBF <- tiv_df$BF
+        tX <- X[tiv_df$idx, ,drop=FALSE]
+        res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
+        tBeta <- coeff_mat(res_d$Beta)
+        civx <- as.data.frame(tivx, data = "assessment")
+        aX <- X[civx$idx,,drop=FALSE]
+        aBF <- civx$BF
+        cv_lik <- apply(X=tBeta, MARGIN = 2,FUN = fgls , x = aX, BF = aBF, log_BF = log_BF)
+        p(message = sprintf("cv-%d", as.integer(y)))
             dplyr::mutate(res_d,
                           cv_lik = cv_lik,
                           cv_i = y,
@@ -93,7 +79,6 @@ cv_fgem <- function(X,
     }
     p <- progressr::progressor(along = cv_idf$splits)
     furrr::future_imap_dfr(cv_idf$splits, strat_fun)
-
 }
 
 
@@ -107,7 +92,7 @@ coeff_mat <- function(Beta_l) {
 
 
 
-fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE,log_BF=FALSE, ...) {
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE,log_BF=FALSE,grad=FALSE,hess=FALSE, ...) {
 
     if(!inherits(X,"dgCMatrix")){
         X <- as.matrix(X)
@@ -140,7 +125,7 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
     if (NCOL(X) == 0) {
             cn <- character("Intercept")
     }
-    return(tibble::tibble_row(
+    rdf <- tibble::tibble_row(
             Beta = list(tibble::tibble(
                     Beta = lbr$par,
                     feature_name = cn
@@ -156,7 +141,14 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
             time = lbr$time,
             num_X = NROW(X),
             convergence = lbr$convergence
-    ))
+    )
+    if (grad) {
+            rdf$grad <- list(fgem_grad(lbr$par, X, 0, log_BF = log_BF))
+    }
+    if (hess) {
+        rdf$hess <- list(fgem_hess(lbr$par, X, 0, log_BF = log_BF))
+    }
+    return()
 }
 
 
@@ -347,70 +339,6 @@ fgem_bfgs <- function(X,
     return(purrr::map_dfr(reg_resl, value_wrapper))
 }
 
-EM_mat <- function(Beta0, feat_mat, BF, verbose=FALSE, em_methods=c("squarem"),  ...) {
-    ctrl_l <- list()
-    if (verbose) {
-        ctrl_l[["trace"]] <-  TRUE
-    }
-    vmessage <- verbose_message_factory(verbose)
-    nobj_f <- obj_factory(feat_mat, BF, verbose = verbose)
-    vmessage("finding Beta using: ", paste0(em_methods, collapse = ","))
-    cn <- colnames(feat_mat) %||% names(Beta0)
-    stopifnot(!is.null(cn))
-    opf <- turboEM::turboem(
-            par = Beta0,
-            fixptfn = FGEM_Logit,
-            boundary = boundary,
-            objfn = nobj_f,
-            x = feat_mat,
-            method = em_methods,
-            control.run = list(convtype = "objfn", tol = 1e-7),
-            B = BF
-            )
-
-    if (!is.null(dim(pars(opf)))){
-        best_opf <- which.max(opf$value.objfn)
-        objf <- -opf$value.objfn[best_opf]
-        Beta <- c(pars(opf)[best_opf, ])
-        converged <- is.na(opf$errors[best_opf])
-    }else{
-        objf <- opf$value.objfn
-        Beta <- pars(opf)
-        converged <- is.na(opf$errors)
-    }
-    if (!converged) {
-            warning("with features: ", paste0(colnames(feat_mat), collapse = ","))
-            error(opf)
-    }
-    opdf <- dplyr::tibble(
-            data = list(tibble::tibble(
-                    Beta = Beta,
-                    feature_name = cn
-            )),
-            LogLik = objf,
-            convergence = converged
-    )
-    return(opdf)
-}
-
-## log1pexp <- function(x)
-## {
-##   indx <- .bincode(x,
-##                    c(-Inf, -37, 18, 33.3, Inf),
-##                    right = TRUE,
-##                    include.lowest = TRUE)
-
-##   kk <- which(indx==1)
-##   if( length(kk) ){  x[kk] <- exp(x[kk])  }
-
-##   kk <- which(indx==2)
-##   if( length(kk) ){  x[kk] <- log1p( exp(x[kk]) ) }
-
-##   kk <- which(indx==3)
-##   if( length(kk) ){  x[kk] <- x[kk] + exp(-x[kk]) }
-##   return(x)
-## }
-
 logsum <- function(l1, l2) {
         pmax(l1, l2) + log1p(exp(-abs(l1 - l2)))
 }
@@ -495,11 +423,6 @@ gen_posterior <- function(feat_df, fgem_result_df) {
   return(mutate(feat_df, posterior = post_n) %>% dplyr::select(-Intercept))
 }
 
-pmean <- function(Beta, feat_mat) {
-        pvec <- 1 / (1 + exp(-(feat_mat %*% Beta[-1] + Beta[1])))
-        return(mean(pvec))
-}
-
 fgem_null <- function(BF, log_BF = FALSE, ...) {
     stats::optimize(fgem_lik_stan, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF, log_BF = log_BF, maximum = TRUE)$maximum
 }
@@ -552,32 +475,18 @@ prior_mean <- function(BF, prior = 0.02, log = FALSE) {
 ##'
 ##' @param X matrix of gene-level annotations
 ##' @param BF vector of gene-level bayes factors
-##' @param prior prior probability a gene is causal (before annotations)
-##' @param tmu precomputed gene-level prior
-##' @param null_beta model to test against for likelihood ratio test
-##' @param add_intercept add intercept to X if it isn't there?
 ##' @param verbose whether to use verbose output
 ##' @return tibble with fgem results
 ##' @export
 fgem <- function(x,
                  BF,
-                 prior=0.02,
-                 tmu = prior_mean(BF, prior),
-                 null_beta=fgem_null(BF, tmu),
-                 add_intercept=TRUE,
-                 verbose = FALSE) {
+                 alpha=1,
+                 lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
+                 verbose = FALSE,
+                 ...) {
     stopifnot(NROW(x) == length(BF))
     vmessage <- verbose_message_factory(verbose)
 
-
-    if (!"Intercept" %in% colnames(x)) {
-        stopifnot(add_intercept)
-        inter_x <- matrix(1, nrow = NROW(x), ncol = 1, dimnames = list(rownames(x), "Intercept"))
-        x <- cbind(x, inter_x)
-    }else{
-        inter_x <- x[, "Intercept"]
-    }
-    Beta0 <- guess_beta0(x, BF, prior, tmu)
     vmessage("Beta0", paste0(Beta0, collapse = ","))
     ret_fgem <- FGEM(
             Beta0 = Beta0,
@@ -606,9 +515,9 @@ fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,para
     null_lik <-fgem_null_lik(BF,log_BF=log_BF)
     if (parallel) {
 #        X <- as.matrix(X)
-        results <- future.apply::future_apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF)
+        results <- future.apply::future_apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF, ... = ...)
     } else {
-        results <- apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF)
+        results <- apply(X, 2, fgem_elasticnet, BF = BF, log_BF = log_BF, ... = ...)
     }
     if (!is.null(colnames(X))) {
             results <- purrr::map2_dfr(results, colnames(X), function(x, y) {
@@ -625,4 +534,3 @@ fgem_marginal <- function(X,BF,prior_mean = 0.02,epsilon=1e-06,max_iter=150,para
             sum_X = colSums(X)
     )
 }
-
