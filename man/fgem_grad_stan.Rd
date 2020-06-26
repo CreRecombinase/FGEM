@@ -5,7 +5,7 @@
 \title{Gradient for FGEM likelihood
 This is an attempt to use stan's AD features to optimize the FGEM likelihood}
 \usage{
-fgem_grad_stan(par, X, BF, prec = 0, neg = FALSE, log_BF = FALSE)
+fgem_grad_stan(par, X, BF, l2 = 0, l1 = 0, log_BF = FALSE)
 }
 \description{
 Gradient for FGEM likelihood

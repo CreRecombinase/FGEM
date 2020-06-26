@@ -97,31 +97,35 @@ predict_null_fgem <- function(BF, log = TRUE) {
 #' @param par Beta parameter
 #' @param X matrix (can be Matrix from Matrix package)
 #' @param BF bayes factor (or log Bayes factor if log_BF=TRUE)
-#' @param prec L2 regularization
+#' @param l2 L2 regularization
 #' @param log_BF boolean indicating whether BF should be treated as log_BF
 #'
 #' @return vector with gradients
 #' @export
-#'
-fgem_grad <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+fgem_grad <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...){
     UseMethod("fgem_grad",X)
 }
 
-
-fgem_grad.matrix <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
-    -fgem_grad_stan(par,X,BF,prec,TRUE,log_BF=log_BF)
+#' @describeIn fgem_grad gradient for dense matrix
+#' @export
+fgem_grad.matrix <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...){
+    -fgem_grad_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
 }
 
-fgem_grad.dgCMatrix <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
-        -sp_fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF)
+#' @export
+#' @describeIn fgem_grad gradient for sparse matrix
+fgem_grad.dgCMatrix <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...) {
+        -sp_fgem_grad_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
 }
 
-fgem_grad.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+#' @export
+#' @describeIn fgem_grad gradient for generic
+fgem_grad.default <- function(par, X, BF, l2 = 0, l1=0.0, log_BF = FALSE, ...) {
     if (inherits(X, "matrix")) {
-            return(-fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+            return(-fgem_grad_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF))
     }
     if (inherits(X, "dgCMatrix")) {
-        return(-sp_fgem_grad_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+        return(-sp_fgem_grad_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF))
     }
     stop(paste0("fgem_grad not implemented for type: ", class(X)))
 }
@@ -135,31 +139,33 @@ fgem_grad.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
 #' @param par Beta parameter
 #' @param X matrix (can be Matrix from Matrix package)
 #' @param BF bayes factor (or log Bayes factor if log_BF=TRUE)
-#' @param prec L2 regularization
+#' @param l2 L2 regularization
 #' @param log_BF boolean indicating whether BF should be treated as log_BF
 #'
 #' @return vector with gradients
 #' @export
 #'
-fgem_hess <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
+fgem_hess <- function(par,X,BF,l2 = 0,l1=0, log_BF = FALSE,...){
     UseMethod("fgem_hess",X)
 }
 
-
-fgem_hess.matrix <- function(par,X,BF,prec = 0, log_BF = FALSE,...){
-    -fgem_hess_stan(par,X,BF,prec,TRUE,log_BF=log_BF)
+#' @export
+fgem_hess.matrix <- function(par,X,BF,l2 = 0,l1=0, log_BF = FALSE,...){
+    fgem_hess_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
 }
 
-fgem_hess.dgCMatrix <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
-        -sp_fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF)
+#' @export
+fgem_hess.dgCMatrix <- function(par, X, BF, l2 = 0,l1=0, log_BF = FALSE, ...) {
+    sp_fgem_hess_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
 }
 
-fgem_hess.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
+#' @export
+fgem_hess.default <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...) {
     if (inherits(X, "matrix")) {
-            return(-fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+        return(fgem_hess_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF))
     }
     if (inherits(X, "dgCMatrix")) {
-        return(-sp_fgem_hess_stan(par, X, BF, prec, TRUE, log_BF = log_BF))
+            sp_fgem_hess_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
     }
     stop(paste0("fgem_hess not implemented for type: ", class(X)))
 }
@@ -168,13 +174,78 @@ fgem_hess.default <- function(par, X, BF, prec = 0, log_BF = FALSE, ...) {
     
 
 
+#' Calculate fgem likelihood
+#'
+#' @param par Beta parameter
+#' @param X matrix (can be Matrix from Matrix package)
+#' @param BF bayes factor (or log Bayes factor if log_BF=TRUE)
+#' @param l2 L2 regularization
+#' @param log_BF boolean indicating whether BF should be treated as log_BF
+#'
+#' @return vector with gradients
+#' @export
+fgem_lik <- function(par,X,BF,l2 = 0,l1=0.0, log_BF = FALSE,...){
+    UseMethod("fgem_lik",X)
+}
+
+#' @describeIn fgem_lik likelihood for dense data matrix
+#' @export
+fgem_lik.matrix <- function(par,X,BF,l2 = 0,l1=0.0, log_BF = FALSE,...){
+    -fgem_lik_stan(par,X,BF,l2,TRUE,log_BF=log_BF)
+}
+
+#' @describeIn fgem_lik likelihood for sparse data matrix
+#' @export
+fgem_lik.dgCMatrix <- function(par, X, BF, l2 = 0,l1=0.0, log_BF = FALSE, ...) {
+        -sp_fgem_lik_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
+}
+
+#' @describeIn fgem_lik likelihood
+#' @export
+fgem_lik.default <- function(par, X, BF, l2 = 0,l1=0.0, log_BF = FALSE, ...) {
+    if (inherits(X, "matrix")) {
+            return(-fgem_lik_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF))
+    }
+    if (inherits(X, "dgCMatrix")) {
+        return(-sp_fgem_lik_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF))
+    }
+    stop(paste0("fgem_lik not implemented for type: ", class(X)))
+}
+
+
+sample_model_sd <- function(par, X, BF, l2 = 0, l1 = 0, log_BF = FALSE,target_par=2,samples=1000) {
+    model_hess <- fgem_hess(par, X, BF, l2, l1, log_BF)
+    model_fish <- solve(model_hess)
+    fish_sd <- sqrt(model_fish[target_par, target_par])
+    sample_B <- c(par[target_par], rnorm(
+            n = samples, mean = par[target_par],
+            sd =fish_sd
+            ))
+    rel_p <- stats::dnorm(sample_B,
+                          mean = par[target_par],
+                          sd = fish_sd)
+    rel_p <- rel_p / sum(rel_p)
+    lik <- purrr::map_dbl(sample_B, function(x) {
+            par[target_par] <- x
+            fgem_lik(par, X, BF, l2, l1, log_BF)
+    })
+
+    rel_lik_d <- lik / sum(lik)
+    par_mean <- sum(sample_B * rel_lik_d)
+    par_sd <- sqrt(sum((sample_B - par_mean)^2 * rel_lik_d))
+    return(par_sd)
+
+}
+
+
 join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", by = "Gene") {
 
     ldv <- long_df[[value]]
     if (is.null(ldv))
         ldv <- rep(1.0, nrow(long_df))
 
-    if( length(unique(wide_df[[by]])) < NROW(wide_df) ){
+    stopifnot(key %in% colnames(long_df))
+    if(length(unique(wide_df[[by]])) < NROW(wide_df)){
         u_f <- unique(long_df[[key]])
         ixm <- dplyr::mutate(long_df, tv = 1) %>%
             tidyr::spread(key = {{ key }}, value = "tv", fill = 0L)
@@ -185,15 +256,14 @@ join_long_wide <- function(long_df, wide_df, key="feature_name", value="value", 
                     dplyr::relocate(X, .after = dplyr::last_col())
         return(ix_df)
     }
-
-    ixm <- trip2sparseMatrix(
-        rowname_vals = long_df[[by]],
-        colname_vals = long_df[[key]],
-        values = ldv,
-        total_rownames = unique(wide_df[[by]]),
-        total_colnames = unique(long_df[[key]]),
-        add_intercept = FALSE
-    )
+    ixm <- as.matrix(trip2sparseMatrix(
+            rowname_vals = long_df[[by]],
+            colname_vals = long_df[[key]],
+            values = ldv,
+            total_rownames = unique(wide_df[[by]]),
+            total_colnames = unique(long_df[[key]]),
+            add_intercept = FALSE
+    ))
     dplyr::mutate(wide_df, X = ixm)
 }
 

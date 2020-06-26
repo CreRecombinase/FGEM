@@ -15,21 +15,7 @@
 #define have_transform_reduce 0
 #endif
 
-template<typename T,typename U>
-inline T FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0) noexcept{
 
-  const size_t p= Beta.size();
-  auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
-  return ((((pvec.array()*BF)+(1.0-pvec.array())).log().sum()) - (0.5 *prec*(Beta.tail(p-1).squaredNorm()))) *(-1);
-}
-
-
-template<typename T,typename U>
-inline T FGEM_log_lik_l2_l1(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double prec=0.0, const double l1=0) noexcept{
-  const size_t p= Beta.size();
-  auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
-  return ((((pvec.array()*BF)+(1.0-pvec.array())).log().sum()) - ((0.5 *prec*(Beta.tail(p-1).squaredNorm()))+ (l1*(Beta.tail(p-1).template lpNorm<1>()) ) )) *(-1);
-}
 
 template<typename TA,typename TB>
 inline TA logsum(const TA l1, const TB l2){
@@ -38,76 +24,87 @@ inline TA logsum(const TA l1, const TB l2){
   return l2 + log1p(exp(-abs(l1 - l2))) ;
 }
 
+
+
+template<typename T>
+inline auto l1_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const double l1=0) {
+  const size_t p=Beta.size();
+  return l1*(Beta.segment(1,Beta.size()-1).template lpNorm<1>());
+}
+
+template<typename T>
+inline auto l2_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const double l2=0) {
+  return (l2/2.0)*(Beta.segment(1,Beta.size()-1).squaredNorm());
+}
+
+template<typename T, typename U>
+inline auto FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF) noexcept{
+  const size_t p= Beta.size();
+  auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
+  return (((pvec.array()*BF)+(1.0-pvec.array())).log().sum());
+}
+
+
+
 template<typename T,typename U>
-inline T log_FGEM_log_lik_l2(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> log_BF,const double prec=0.0) noexcept{
+inline T log_FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> log_BF) noexcept{
 
   const size_t p= Beta.size();
-  T init =  (0.5 *prec*(Beta.tail(p-1).squaredNorm()));
+  T init =  0.0;
   Eigen::Array<T,Eigen::Dynamic,1> xb = (X*(Beta.tail(p-1).matrix())).array()+Beta[0];
+
+  //  return (stan::math::log1p_exp(+log_BF)-stan::math::log1p_exp(xb)).sum();
+
   #if have_transform_reduce
-  return  (-1)*std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
+  return  std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
                                     [](T a, double b) -> T{
-                                      return logsum(-a,b)+stan::math::log_inv_logit(a);
+                                      return stan::math::log1p_exp(a+b)-stan::math::log1p_exp(a);
                                     });
   #else
-  return  (-1)*std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
+  return  std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
                                     [](T a, double b) -> T{
-                                      return logsum(-a,b)+stan::math::log_inv_logit(a);
+                                      return stan::math::log1p_exp(a+b)-stan::math::log1p_exp(a);
+
                                     });
   #endif
 
 }
 
 
-template<typename T,typename U>
-inline T log_FGEM_log_lik_l2_l1(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> log_BF,const double prec=0.0,const double l1=0) noexcept{
-
-  const size_t p= Beta.size();
-  T init =  (0.5 *prec*(Beta.tail(p-1).squaredNorm())) + (l1*(Beta.tail(p-1).template lpNorm<1>()));
-  Eigen::Array<T,Eigen::Dynamic,1> xb = (X*(Beta.tail(p-1).matrix())).array()+Beta[0];
-  #if have_transform_reduce
-  return  (-1)*std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
-                                    [](T a, double b) -> T{
-                                      return logsum(-a,b)+stan::math::log_inv_logit(a);
-                                    });
-  #else
-  return  (-1)*std::inner_product(xb.data(),xb.data()+xb.size(),log_BF.data(),init,std::plus<>(),
-                                    [](T a, double b) -> T{
-                                      return logsum(-a,b)+stan::math::log_inv_logit(a);
-                                    });
-  #endif
-
+template <typename T, typename U,auto TF>
+inline T l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double l2) noexcept{
+  return -TF(Beta,X,BF) + l2_penalty<T>(Beta,l2);
 }
 
+template <typename T, typename U,auto TF>
+inline T l1_l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double l2,const double l1) noexcept{
+  return -TF(Beta,X,BF) + l2_penalty<T>(Beta,l2)+l1_penalty<T>(Beta,l1);
+}
 
 
 template<typename U>
 struct fgem_lik {
   Eigen::Map<U> X;
   Eigen::Map<Eigen::ArrayXd> BF;
-  double prec;
-  fgem_lik(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double prec_=0.0): X(X_),BF(BF_),prec(prec_){}
-  void update_X(Eigen::Map<U> &&x){
-    X=x;
-  }
+  double l2;
+  fgem_lik(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double l2_=0.0): X(X_),BF(BF_),l2(l2_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
-      return FGEM_log_lik_l2<T,U>(tcvec,X,BF,prec);
+      return l2_penalized_lik<T,U,FGEM_log_lik<T,U> >(tcvec,X,BF,l2);
   }
-
 };
 
 template<typename U>
 struct log_fgem_lik {
   Eigen::Map<U> X;
   Eigen::Map<Eigen::ArrayXd> log_BF;
-  double prec;
-  log_fgem_lik(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double prec_=0.0): X(X_),log_BF(log_BF_),prec(prec_){}
+  double l2;
+  log_fgem_lik(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double l2_=0.0): X(X_),log_BF(log_BF_),l2(l2_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
-      return log_FGEM_log_lik_l2<T,U>(tcvec,X,log_BF,prec);
+      return l2_penalized_lik<T,U,log_FGEM_log_lik<T,U> >(tcvec,X,log_BF,l2);
   }
 };
 
@@ -116,13 +113,13 @@ template<typename U>
 struct fgem_lik_l1 {
   Eigen::Map<U> X;
   Eigen::Map<Eigen::ArrayXd> BF;
-  double prec;
+  double l2;
   double l1;
-  fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double prec_=0.0,const double l1_=0.0): X(X_),BF(BF_),prec(prec_),l1(l1_){}
+  fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double l2_=0.0,const double l1_=0.0): X(X_),BF(BF_),l2(l2_),l1(l1_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
-      return FGEM_log_lik_l2_l1<T,U>(tcvec,X,BF,prec,l1);
+      return l1_l2_penalized_lik<T,U,FGEM_log_lik<T,U> >(tcvec,X,BF,l2,l1);
   }
 
 };
@@ -131,41 +128,40 @@ template<typename U>
 struct log_fgem_lik_l1 {
   Eigen::Map<U> X;
   Eigen::Map<Eigen::ArrayXd> log_BF;
-  double prec;
+  double l2;
   double l1;
-  log_fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double prec_=0.0,const double l1_=0.0): X(X_),log_BF(log_BF_),prec(prec_),l1(l1_){}
+  log_fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double l2_=0.0,const double l1_=0.0): X(X_),log_BF(log_BF_),l2(l2_),l1(l1_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
-      return log_FGEM_log_lik_l2_l1<T,U>(tcvec,X,log_BF,prec,l1);
+      return l1_l2_penalized_lik<T,U,log_FGEM_log_lik<T,U> >(tcvec,X,log_BF,l2,l1);
   }
 };
 
 
-template<typename U,template<typename> typename L = fgem_lik>
-class fgem_bfg
-{
-private:
-  L<U> f;
-  mutable Eigen::VectorXd tgrad;
-public:
-  fgem_bfg(L<U> && f_) : f(f_),tgrad() {}
-  double operator()(const Eigen::VectorXd& x, Eigen::VectorXd& grad)
-  {
-    double fx=0;
-    stan::math::gradient(f,x,fx,grad);
-    return fx;
-  }
-  Rcpp::NumericVector grad(SEXP xs) const noexcept{
-    auto x =  Rcpp::as<Eigen::Map<Eigen::VectorXd>>(xs);
-    tgrad.resize(x.size());
-    double fx=0;
-    stan::math::gradient(f,x,fx,tgrad);
-    return Rcpp::wrap(tgrad);
-  }
-  Rcpp::NumericVector lik(SEXP xs) const noexcept{
-    auto fr = f(Rcpp::as<Eigen::VectorXd>(xs));
-    return Rcpp::NumericVector::create(fr);
-  }
-};
-
+// template<typename U,template<typename> typename L = fgem_lik>
+// class fgem_bfg
+// {
+// private:
+//   L<U> f;
+//   mutable Eigen::VectorXd tgrad;
+// public:
+//   fgem_bfg(L<U> && f_) : f(f_),tgrad() {}
+//   double operator()(const Eigen::VectorXd& x, Eigen::VectorXd& grad)
+//   {
+//     double fx=0;
+//     stan::math::gradient(f,x,fx,grad);
+//     return fx;
+//   }
+//   Rcpp::NumericVector grad(SEXP xs) const noexcept{
+//     auto x =  Rcpp::as<Eigen::Map<Eigen::VectorXd>>(xs);
+//     tgrad.resize(x.size());
+//     double fx=0;
+//     stan::math::gradient(f,x,fx,tgrad);
+//     return Rcpp::wrap(tgrad);
+//   }
+//   Rcpp::NumericVector lik(SEXP xs) const noexcept{
+//     auto fr = f(Rcpp::as<Eigen::VectorXd>(xs));
+//     return Rcpp::NumericVector::create(fr);
+//   }
+// };

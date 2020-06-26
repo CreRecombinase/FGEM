@@ -1,5 +1,5 @@
-prep_fgem <- function(X, BF, l2,log_BF=FALSE) {
-        renv <- rlang::env(X = X, BF = BF, prec = l2, log_BF = log_BF)
+prep_fgem <- function(X, BF, l2, log_BF=FALSE) {
+        renv <- rlang::env(X = X, BF = BF, l2 = l2, log_BF = log_BF)
         rl <- make_env_obj(inherits(X, "dgCMatrix"))
         rl[["env"]] <- renv
         return(rl)
@@ -28,8 +28,8 @@ cv_fgem <- function(X,
     v <- 10
 
     if (!inherits(X, "dgCMatrix")) {
-      fgls <- function(par, x, BF, prec = 0, neg = FALSE, log_BF = FALSE){
-        fgem_lik_stan(par,x,BF,prec,neg,log_BF)
+      fgls <- function(par, x, BF, l2 = 0, neg = FALSE, log_BF = FALSE){
+        fgem_lik_stan(par,x,BF,l2,neg,log_BF)
       }
             idf <- tibble::tibble(BF = BF, X)
             strat_fun <- function(tivx, y) {
@@ -51,8 +51,8 @@ cv_fgem <- function(X,
             }
     }else{
       idf <- mutate(tibble::tibble(BF = BF), idx = 1:n())
-      fgls <- function(par, x, BF, prec = 0, neg = FALSE, log_BF = FALSE){
-        sp_fgem_lik_stan(par,x,BF,prec,neg,log_BF)
+      fgls <- function(par, x, BF, l2 = 0, neg = FALSE, log_BF = FALSE){
+        sp_fgem_lik_stan(par,x,BF,l2,neg,log_BF)
       }
       strat_fun <- function(tivx, y) {
         tiv_df <- tibble::as_tibble(tivx)
@@ -92,7 +92,7 @@ coeff_mat <- function(Beta_l) {
 
 
 
-fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE,log_BF=FALSE,grad=FALSE,hess=FALSE, ...) {
+fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, verbose=FALSE,log_BF=FALSE,grad=FALSE,hess=FALSE,check_conv=TRUE, ...) {
 
     if(!inherits(X,"dgCMatrix")){
         X <- as.matrix(X)
@@ -114,22 +114,44 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
             orthantwise_start = 1,
             orthantwise_end = NCOL(X) + 1,
             invisible = dplyr::if_else(verbose, 0L, 1L)
-    )
+            )
     lbr$time <- (proc.time() - pta)["elapsed"]
     lbr$l0n <- sum(lbr$par != 0)
     lbr$l1n <- sum(abs(lbr$par))
     lbr$l2n <- sum(lbr$par^2)
     lbr$lambda <- l
     lbr$alpha <- alpha
+    gradient <- NULL
+    if (lbr$convergence == 0 && check_conv) {
+        gradient <- fgem_grad(par = lbr$par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
+        sg <- sign(gradient)
+
+
+    }
+
+
     cn <- c("Intercept", colnames(X) %||% paste0("V", seq_len(NCOL(X))))
     if (NCOL(X) == 0) {
             cn <- character("Intercept")
     }
+    BL <- list(tibble::tibble(
+            Beta = lbr$par,
+            feature_name = cn,
+    ))
+    hessian <- NULL
+    if (grad) {
+      if(is.null(gradient)){
+        gradient <- fgem_grad(par = lbr$par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
+      }
+      BL[[1]]$gradient <- gradient
+    }
+    if (hess) {
+            hessian <- fgem_hess(par = lbr$par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
+            BL[[1]]$hessian <- hessian
+    }
+
     rdf <- tibble::tibble_row(
-            Beta = list(tibble::tibble(
-                    Beta = lbr$par,
-                    feature_name = cn
-            )),
+            Beta = BL,
             l0n = lbr$l0n,
             l1n = lbr$l1n,
             l2n = lbr$l2n,
@@ -142,13 +164,8 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
             num_X = NROW(X),
             convergence = lbr$convergence
     )
-    if (grad) {
-            rdf$grad <- list(fgem_grad(lbr$par, X, 0, log_BF = log_BF))
-    }
-    if (hess) {
-        rdf$hess <- list(fgem_hess(lbr$par, X, 0, log_BF = log_BF))
-    }
-    return()
+
+    return(rdf)
 }
 
 
@@ -303,8 +320,8 @@ fgem_bfgs <- function(X,
                 tl0n <- reg_resl[[length(reg_resl)]]$l0n
         }
     }else{
-        if (tl0n > 1) {
-                warning("largest lambda provided does not shrink to 0, rerun with `add_lambda=TRUE` to ensure complete regularization path")
+        if (tl0n > 1 && alpha>0) {
+            warning("largest lambda provided does not shrink to 0, rerun with `add_lambda=TRUE` to ensure complete regularization path")
         }
     }
     rest_lambda <- lambda[lambda < old_max_lambda]
@@ -424,12 +441,12 @@ gen_posterior <- function(feat_df, fgem_result_df) {
 }
 
 fgem_null <- function(BF, log_BF = FALSE, ...) {
-    stats::optimize(fgem_lik_stan, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF, log_BF = log_BF, maximum = TRUE)$maximum
+    stats::optimize(fgem_lik, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF, log_BF = log_BF, maximum = TRUE)$maximum
 }
 
 
 fgem_null_lik <- function(BF,log_BF=FALSE) {
-    stats::optimize(fgem_lik_stan, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF,log_BF = log_BF, maximum = TRUE)$objective
+    stats::optimize(fgem_lik, lower = -10, upper = 100,  X = matrix(0, nrow = length(BF), ncol = 0), BF = BF,log_BF = log_BF, maximum = TRUE)$objective
 
 }
 

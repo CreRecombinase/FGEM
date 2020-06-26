@@ -5,7 +5,7 @@
 \title{This is an attempt to use stan's AD features to calculate a gradient
 for the FGEM likelihood}
 \usage{
-sp_fgem_lik_stan(par, X, BF, prec = 0, neg = FALSE, log_BF = FALSE)
+sp_fgem_lik_stan(par, X, BF, l2 = 0, l1 = 0, log_BF = FALSE)
 }
 \description{
 This is an attempt to use stan's AD features to calculate a gradient

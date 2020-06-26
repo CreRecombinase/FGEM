@@ -1,14 +1,14 @@
 context("simulation")
-
+set.seed(123)
 test_that("FGEM works on simulated data",{
-  g <- 2000
+  g <- 1000
   sz <- 200
-  X <- cbind(rbinom(n = g,size=1,prob=0.5),
-             rbinom(n = g,size=1,prob=0.1),
-             rbinom(n = g,size=1,prob=0.4))
+  f <- 2
+  ps <- 0.5
+  X <- do.call(cbind,purrr::map(runif(f,min = 0.3,max=0.7),~rbinom(n = g,size=1,prob=.x)))
   storage.mode(X) <- "numeric"
-  eff <- c(-3,0,5,5)  
-  fn <- c("Intercept","V1","V2","V3")
+  eff <- c(-5,abs(rnorm(f,mean=0.7))*rbinom(f,size=1,prob=ps))
+  fn <- c("Intercept",paste0("V",seq_len(f)))
   true_value <- tibble::tibble(feature_name=fn,true_Beta=eff)  
   pr <- fgem:::gen_p(eff,X)
   y <- rbinom(g,size=1,prob=pr)
@@ -19,40 +19,74 @@ test_that("FGEM works on simulated data",{
   bf <- log(pxz1)-log(pxz2)
   lambda <- c(2, 1, 5 * 10^(-(seq(1, 
     9, length.out = 75))), 0)
-  tr <- fgem:::fgem_bfgs(X,bf,log_BF = TRUE,alpha=0.9,lambda=lambda)
-  progressr::with_progress({
-  cvtr <- fgem:::cv_fgem(X,bf,alpha=0.9,lambda=lambda,log_BF = TRUE)
-  })
-  summ_cv <- fgem:::summarise_cv_lik(cvtr)
+  new_lik <- function(par,X,BF){
+    xb <- X%*%par[-1]+par[1]
+    sum(fgem:::log_1p_exp(xb+BF) - fgem:::log_1p_exp(xb))
+  }
+  new_lik <- function(par,X,eBF){
+    
+  }
+  
 
-comp_df <-   tibble(l1=tr$lambda,Beta=map2(rev(summ_cv$Beta),tr$Beta,function(cv_df,ncv_df){
-    bind_rows(transmute(cv_df,Beta=Beta,feature_name=feature_name,model="cv"),
-               transmute(ncv_df,Beta=Beta,feature_name=feature_name,model="ncv"))
-  }),lik=summ_cv$cv_sum) %>% unnest(Beta)
+  new_grad <- function(par,X,eBF){
+      myenv <- new.env()
+      assign("Beta",par, envir = myenv)
+#      assign("Beta0",par[1] , envir = myenv)
+      assign("eBF", eBF, envir = myenv)
+      assign("X", X, envir = myenv)
+      rd <- numericDeriv(quote(sum(log(eBF + (1 - eBF)/t(1 + exp(X%*%Beta[-1]+Beta[1]))))),c("Beta"),myenv)
+      return(c(attr(rd,"gradient")))
+  }
   
-  unnest(summ_cv,Beta) %>% 
-    filter(group_l1 > 0) %>% 
-    inner_join(true_value) %>% 
-    ggplot(aes(x = group_l1, y = Beta, col = feature_name))+
-    geom_line()+
-    scale_x_log10()+
-    geom_hline(aes(yintercept = true_Beta, col = feature_name, linetype = feature_name))
-  filter(summ_cv, group_l1 > 0) %>% 
-    ggplot(aes(x=group_l1,y=cv_sum))+geom_point()+scale_x_log10()
   
-  unnest(tr,Beta) %>% 
-    inner_join(true_value) %>% 
-    ggplot(aes(x=lambda,y=Beta,col=feature_name))+
-    geom_line()+
-    scale_x_log10()+
-    geom_hline(aes(yintercept=true_Beta,col=feature_name,linetype=feature_name))
-  preds <- purrr::map(tr$Beta,~fgem:::gen_u(Beta = .x$Beta,x = X,B = bf))
 
-tr <- mutate(tr,Beta=purrr::map(Beta,
-                           ~mutate(.x,grad=fgem:::fgem_grad_stan(Beta,X,bf))))
+
   
-  hess_mats <- purrr::map(tr$Beta,
-                          ~fgem:::fgem_hess_stan(.x$Beta,X,bf))
+  
+  tr <- fgem:::fgem_bfgs(X,bf,log_BF=TRUE ,alpha=.5,lambda=lambda,hess=TRUE,grad=TRUE,verbose=TRUE)
+  
+  fgem:::fgem_lik(tr$Beta[[3]]$Beta,X,bf,0,0,log_BF=TRUE)
+  new_lik(tr$Beta[[3]]$Beta,X,exp(bf))
+  tg <- fgem:::fgem_grad(tr$Beta[[3]]$Beta,X,bf,0,0,log_BF=TRUE)
+   ebf <- exp(bf)
+  cg <- new_grad(par,X,eBF)
+
+  mb <- microbenchmark::microbenchmark(  nl = fgem:::fgem_lik(tr$Beta[[3]]$Beta,X,ebf,0,0,log_BF=FALSE),
+                                         ll = fgem:::fgem_lik(tr$Beta[[3]]$Beta,X,bf,0,0,log_BF=TRUE))
+    
+  
+  wl <- which(tr$l0n>1)[1]
+  l <- lambda[wl]
+  prec <- tr$l2[wl]
+  l1 <- tr$l1[wl]
+  l <- lambda[wl]
+  fgl <- fgem:::fgem_elasticnet(X,bf,alpha=0.5,lambda=l,log_BF=TRUE,grad=TRUE,verbose=TRUE)
+  
+  
+
+
+  gr <- fgem::fgem_grad(fgl$Beta[[1]]$Beta,X,BF=bf,log_BF=TRUE,prec=fgl$l2,l1=fgl$l1)
+  sctg <- sign(gr)
+  i <- 4
+  par <- fgl$Beta[[1]]$Beta
+  prec <- fgl$l2
+  l1 <- fgl$l1
+  BF <- bf
+  log_BF <- TRUE
+  lik_idx <- function(i,par,X,BF,log_BF,prec,l1,sdd=2){
+    par[i] <- rnorm(1,mean=par[i],sd=sdd)
+    nlik <- fgem_lik(par,X,BF,prec=prec,log_BF=log_BF,l1=l1)
+    uplik <-fgem_lik(par,X,BF,prec=0.0,log_BF=log_BF,l1=0.0)
+    gr <- fgem_grad(par,X,BF,prec=prec,log_BF=log_BF,l1=l1)
+    upgr <- fgem_grad(par,X,BF,prec=0.0,log_BF=log_BF,l1=0.0)
+    return(tibble::tibble(par=par[i],lik=nlik,uplik=uplik,grad=gr[i],upgrad=upgr[i]))
+  }
+  table(y[X[,1]==1])
+  tdf <- purrr::map_dfr(rep(2,1000),lik_idx,par=par,X=X,BF=BF,log_BF=log_BF,prec=prec,l1=l1,sdd=.5)
+  ggplot2::ggplot(tdf,ggplot2::aes(x=par,y=lik,col=grad))+ggplot2::geom_point()+ggplot2::geom_vline(xintercept=fgl$Beta[[1]]$Beta[2])+ggplot2::scale_color_gradient2()
+  ggplot(tdf,aes(x=par,y=uplik,col=upgrad))+geom_point()+geom_vline(xintercept=fgl$Beta[[1]]$Beta[4])+scale_color_gradient2()
+  
+ 
 })
 
 

@@ -4,15 +4,15 @@
 #' Gradient for FGEM likelihood
 #' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 #' @export
-fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+fgem_grad_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, log_BF = FALSE) {
+    .Call('_fgem_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, log_BF)
 }
 
 #' Gradient for FGEM likelihood
 #' This is an attempt to use stan's AD features to optimize the FGEM likelihood
 #' @export
-sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_sp_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+sp_fgem_grad_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_grad_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, log_BF)
 }
 
 #' evd_dnorm_hess_stan
@@ -21,8 +21,8 @@ sp_fgem_grad_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALS
 #' for the RSSp likelihood
 #'
 #' @export
-sp_fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_sp_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+sp_fgem_hess_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, neg = FALSE, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, neg, log_BF)
 }
 
 #' evd_dnorm_hess_stan
@@ -31,8 +31,8 @@ sp_fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALS
 #' for the RSSp likelihood
 #'
 #' @export
-fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+fgem_hess_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, log_BF = FALSE) {
+    .Call('_fgem_fgem_hess_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, log_BF)
 }
 
 #'
@@ -40,30 +40,20 @@ fgem_hess_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) 
 #' for the FGEM likelihood
 #'
 #' @export
-sp_fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_sp_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+sp_fgem_lik_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, log_BF = FALSE) {
+    .Call('_fgem_sp_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, log_BF)
 }
 
-fgem_lik_stan <- function(par, X, BF, prec = 0.0, neg = FALSE, log_BF = FALSE) {
-    .Call('_fgem_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, prec, neg, log_BF)
+l1_norm_penalty <- function(par, l1) {
+    .Call('_fgem_l1_norm_penalty', PACKAGE = 'fgem', par, l1)
 }
 
-#' fit fgem with bfgs
-#'
-#' fit fgem using c++ BFGS algorithm
-#'
-#' @export
-fgem_fit_bfgs <- function(par, X, BF, prec = 0.0, epsilon = 1e-6, max_iter = 100L) {
-    .Call('_fgem_fgem_fit_bfgs', PACKAGE = 'fgem', par, X, BF, prec, epsilon, max_iter)
+l2_norm_penalty <- function(par, l2) {
+    .Call('_fgem_l2_norm_penalty', PACKAGE = 'fgem', par, l2)
 }
 
-#' fit every column of X with the BFGS algorithm
-#'
-#' fit fgem using c++ BFGS algorithm
-#'
-#' @export
-marginal_fgem_fit_bfgs <- function(X, BF, prec = 0.0, epsilon = 1e-6, max_iter = 100L, progress = TRUE, log_BF = FALSE) {
-    .Call('_fgem_marginal_fgem_fit_bfgs', PACKAGE = 'fgem', X, BF, prec, epsilon, max_iter, progress, log_BF)
+fgem_lik_stan <- function(par, X, BF, l2 = 0.0, l1 = 0.0, log_BF = FALSE) {
+    .Call('_fgem_fgem_lik_stan', PACKAGE = 'fgem', par, X, BF, l2, l1, log_BF)
 }
 
 make_env_obj <- function(sparse = FALSE, log = FALSE) {
