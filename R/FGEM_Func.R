@@ -50,7 +50,7 @@ cv_fgem <- function(X,
                               group_l2 = round(l2 / num_X, digits = 10))
             }
     }else{
-      idf <- mutate(tibble::tibble(BF = BF), idx = 1:n())
+      idf <- dplyr::mutate(tibble::tibble(BF = BF), idx = 1:dplyr::n())
       fgls <- function(par, x, BF, l2 = 0, neg = FALSE, log_BF = FALSE){
         sp_fgem_lik_stan(par,x,BF,l2,neg,log_BF)
       }
