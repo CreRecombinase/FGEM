@@ -17,23 +17,14 @@
 
 
 
-template<typename TA,typename TB>
-inline TA logsum(const TA l1, const TB l2){
-  if(l1>l2)
-    return l1 + log1p(exp(-abs(l1 - l2))) ;
-  return l2 + log1p(exp(-abs(l1 - l2))) ;
-}
-
-
-
-template<typename T>
-inline auto l1_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const double l1=0) {
+template<typename T,typename U>
+inline auto l1_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const U l1) {
   const size_t p=Beta.size();
   return l1*(Beta.segment(1,Beta.size()-1).template lpNorm<1>());
 }
 
-template<typename T>
-inline auto l2_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const double l2=0) {
+template<typename T,typename U>
+inline auto l2_penalty(const Eigen::Matrix<T,Eigen::Dynamic,1> &Beta,const U l2) {
   return (l2/2.0)*(Beta.segment(1,Beta.size()-1).squaredNorm());
 }
 
@@ -43,7 +34,6 @@ inline auto FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Ei
   auto pvec =  stan::math::inv_logit((X*(Beta.tail(p-1).matrix())).array()+Beta[0]);
   return (((pvec.array()*BF)+(1.0-pvec.array())).log().sum());
 }
-
 
 
 template<typename T,typename U>
@@ -72,14 +62,20 @@ inline T log_FGEM_log_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const E
 
 
 template <typename T, typename U,auto TF>
-inline T l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double l2) noexcept{
-  return -TF(Beta,X,BF) + l2_penalty<T>(Beta,l2);
+inline T l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const T l2) noexcept{
+  return -TF(Beta,X,BF) + l2_penalty<T,T>(Beta,l2);
 }
 
 template <typename T, typename U,auto TF>
-inline T l1_l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const double l2,const double l1) noexcept{
-  return -TF(Beta,X,BF) + l2_penalty<T>(Beta,l2)+l1_penalty<T>(Beta,l1);
+inline T l1_l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF,const T l2,const T l1) noexcept{
+  return -TF(Beta,X,BF) + l2_penalty<T,T>(Beta,l2)+l1_penalty<T,T>(Beta,l1);
 }
+
+// template <typename T, typename U,auto TF>
+// inline T ap_l1_l2_penalized_lik(const  Eigen::Array<T,Eigen::Dynamic,1> &Beta, const Eigen::Map<U> X, const Eigen::Map<Eigen::ArrayXd> BF) noexcept{
+//   return l1_l2_penalized_lik(Beta.tail(Beta.size()-2),X,BF,Beta[0],Beta[1]);
+// }
+
 
 
 template<typename U>
@@ -115,7 +111,7 @@ struct fgem_lik_l1 {
   Eigen::Map<Eigen::ArrayXd> BF;
   double l2;
   double l1;
-  fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double l2_=0.0,const double l1_=0.0): X(X_),BF(BF_),l2(l2_),l1(l1_){}
+  fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> BF_,const double l2_,const double l1_): X(X_),BF(BF_),l2(l2_),l1(l1_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
@@ -130,13 +126,28 @@ struct log_fgem_lik_l1 {
   Eigen::Map<Eigen::ArrayXd> log_BF;
   double l2;
   double l1;
-  log_fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double l2_=0.0,const double l1_=0.0): X(X_),log_BF(log_BF_),l2(l2_),l1(l1_){}
+  log_fgem_lik_l1(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_,const double l2_,const double l1_): X(X_),log_BF(log_BF_),l2(l2_),l1(l1_){}
   template <typename T>
   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
       return l1_l2_penalized_lik<T,U,log_FGEM_log_lik<T,U> >(tcvec,X,log_BF,l2,l1);
   }
 };
+
+
+
+// template<typename U>
+// struct log_fgem_lik_l1g {
+//   Eigen::Map<U> X;
+//   Eigen::Map<Eigen::ArrayXd> log_BF;
+//   log_fgem_lik_l1g(const Eigen::Map<U> X_,  const Eigen::Map<Eigen::ArrayXd> log_BF_): X(X_),log_BF(log_BF_){}
+//   template <typename T>
+//   T operator()(const Eigen::Matrix<T,Eigen::Dynamic,1> &par) const noexcept{
+//       Eigen::Array<T,Eigen::Dynamic,1> tcvec(par);
+//       return ap_l1_l2_penalized_lik<T,U,log_FGEM_log_lik<T,U> >(tcvec,X,log_BF);
+//   }
+// };
+
 
 
 // template<typename U,template<typename> typename L = fgem_lik>

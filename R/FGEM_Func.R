@@ -5,6 +5,16 @@ prep_fgem <- function(X, BF, l2, log_BF=FALSE) {
         return(rl)
 }
 
+max_lambda <- function(X,BF,alpha=1,log_BF=FALSE){
+  null_beta <- fgem_null(BF = BF,log_BF=log_BF)
+  nb <- c(null_beta,rep(0,ncol(X)))
+  zero_grad <- fgem_grad(par = nb,X = X,BF = BF,l2 = 0,l1 = 0,log_BF=log_BF)
+  wm <- max(abs(zero_grad[-1]))
+  if(alpha==0){
+    return(wm)
+  }
+  return(wm/alpha)
+}
 
 
 ##' @title fit cross-validated FGEM model
@@ -19,57 +29,56 @@ prep_fgem <- function(X, BF, l2, log_BF=FALSE) {
 ##' @export
 cv_fgem <- function(X,
                     BF,
-                    alpha = 1,
-                    lambda = c(2,1, 5 * 10^(-(seq(1, 6, length.out = 75))), 0),
-                    stratify_BF=TRUE,
                     log_BF=FALSE,
+                    alpha = 1,
+                    nlambda=100,
+                    lambda=NULL,
+                    stratify_BF=TRUE,
+                    v=10,
                     ...){
-
-    v <- 10
-
+    fgls <- function(par, x, BF,log_BF = FALSE){
+        fgem_lik(par=par,X=x,BF=BF,l2=0.0,log_BF=log_BF)
+    }
+    if(is.null(lambda)){
+      lambda.min.ratio <- ifelse(NROW(X)>NCOL(X),0.0001,0.01)
+      max_l <- max_lambda(X=X,BF=BF,log_BF=log_BF,alpha=alpha)
+      min_l <- max_l*lambda.min.ratio
+      lambda <- c(0,lseq(min_l,max_l,length.out=nlambda))
+    }
     if (!inherits(X, "dgCMatrix")) {
-      fgls <- function(par, x, BF, l2 = 0, neg = FALSE, log_BF = FALSE){
-        fgem_lik_stan(par,x,BF,l2,neg,log_BF)
-      }
-            idf <- tibble::tibble(BF = BF, X)
-            strat_fun <- function(tivx, y) {
-                tiv_df <- tibble::as_tibble(tivx)
-                tBF <- tiv_df$BF
-                tX <- tiv_df$X
-                res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
-                tBeta <- coeff_mat(res_d$Beta)
-                civx <- as.data.frame(tivx, data = "assessment")
-                aX <- civx$X
-                aBF <- civx$BF
-                cv_lik <- apply(X=tBeta,MARGIN= 2,FUN= fgls, x = aX, BF = aBF, log_BF = log_BF)
-                p(message = sprintf("cv-%d", as.integer(y)))
-                dplyr::mutate(res_d,
-                              cv_lik = cv_lik,
-                              cv_i = y,
-                              group_l1 = round(l1 / num_X, digits = 10),
-                              group_l2 = round(l2 / num_X, digits = 10))
-            }
-    }else{
-      idf <- dplyr::mutate(tibble::tibble(BF = BF), idx = 1:dplyr::n())
-      fgls <- function(par, x, BF, l2 = 0, neg = FALSE, log_BF = FALSE){
-        sp_fgem_lik_stan(par,x,BF,l2,neg,log_BF)
-      }
-      strat_fun <- function(tivx, y) {
-        tiv_df <- tibble::as_tibble(tivx)
-        tBF <- tiv_df$BF
-        tX <- X[tiv_df$idx, ,drop=FALSE]
-        res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF)
-        tBeta <- coeff_mat(res_d$Beta)
-        civx <- as.data.frame(tivx, data = "assessment")
-        aX <- X[civx$idx,,drop=FALSE]
-        aBF <- civx$BF
-        cv_lik <- apply(X=tBeta, MARGIN = 2,FUN = fgls , x = aX, BF = aBF, log_BF = log_BF)
-        p(message = sprintf("cv-%d", as.integer(y)))
+        idf <- tibble::tibble(BF = BF, X)
+        strat_fun <- function(tivx, y,...) {
+            tiv_df <- tibble::as_tibble(tivx)
+            tBF <- tiv_df$BF
+            tX <- tiv_df$X
+            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF,...=...)
+            tBeta <- coeff_mat(res_d$Beta)
+            civx <- as.data.frame(tivx, data = "assessment")
+            aX <- civx$X
+            aBF <- civx$BF
+            cv_lik <- apply(X=tBeta,MARGIN= 2,FUN= fgls, x = aX, BF = aBF, log_BF = log_BF)
+            p(message = sprintf("cv-%d", as.integer(y)))
             dplyr::mutate(res_d,
                           cv_lik = cv_lik,
-                          cv_i = y,
-                          group_l1 = round(l1 / num_X, digits = 10),
-                          group_l2 = round(l2 / num_X, digits = 10))
+                          cv_i = y
+                          )
+        }
+    }else{
+        idf <- dplyr::mutate(tibble::tibble(BF = BF), idx = 1:dplyr::n())
+        strat_fun <- function(tivx, y,...) {
+            tiv_df <- tibble::as_tibble(tivx)
+            tBF <- tiv_df$BF
+            tX <- X[tiv_df$idx, ,drop=FALSE]
+            res_d <- fgem_bfgs(tX, tBF, lambda = lambda, alpha = alpha, log_BF = log_BF,...=...)
+            tBeta <- coeff_mat(res_d$Beta)
+            civx <- as.data.frame(tivx, data = "assessment")
+            aX <- X[civx$idx,,drop=FALSE]
+            aBF <- civx$BF
+            cv_lik <- apply(X=tBeta, MARGIN = 2,FUN = fgls , x = aX, BF = aBF, log_BF = log_BF)
+            p(message = sprintf("cv-%d", as.integer(y)))
+            dplyr::mutate(res_d,
+                          cv_lik = cv_lik,
+                          cv_i = y)
         }
     }
     if (stratify_BF) {
@@ -78,7 +87,7 @@ cv_fgem <- function(X,
         cv_idf <- rsample::vfold_cv(idf, v = v)
     }
     p <- progressr::progressor(along = cv_idf$splits)
-    furrr::future_imap_dfr(cv_idf$splits, strat_fun)
+    furrr::future_imap_dfr(cv_idf$splits, strat_fun,...=...)
 }
 
 
@@ -98,7 +107,7 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
         X <- as.matrix(X)
     }
 
-    l <- lambda * NROW(X)
+    l <- lambda 
     l2 <- (1 - alpha) * l
     l1 <- (alpha) * l
     tto <- prep_fgem(X, BF, l2, log_BF)
@@ -117,18 +126,17 @@ fgem_elasticnet <- function(X, BF, Beta0=rep(0, NCOL(X) + 1), alpha=1,lambda=0, 
             )
     lbr$time <- (proc.time() - pta)["elapsed"]
     lbr$l0n <- sum(lbr$par != 0)
+    if(lbr$convergence!=0 && lbr$l0n==1 && NCOL(X)>0){
+      nbf <- fgem_null_fit(BF,log_BF=log_BF)
+      lbr$par[1] <- nbf$Beta[[1]]$Beta[1]
+      lbr$value <- -nbf$lik
+      lbr$convergence <- nbf$convergence
+    }
     lbr$l1n <- sum(abs(lbr$par))
     lbr$l2n <- sum(lbr$par^2)
     lbr$lambda <- l
     lbr$alpha <- alpha
     gradient <- NULL
-    if (lbr$convergence == 0 && check_conv) {
-        gradient <- fgem_grad(par = lbr$par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
-        sg <- sign(gradient)
-
-
-    }
-
 
     cn <- c("Intercept", colnames(X) %||% paste0("V", seq_len(NCOL(X))))
     if (NCOL(X) == 0) {

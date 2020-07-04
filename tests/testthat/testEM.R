@@ -3,10 +3,10 @@ set.seed(123)
 test_that("FGEM works on simulated data",{
   g <- 1000
   sz <- 200
-  f <- 2
+  f <- 15
   ps <- 0.5
-  X <- do.call(cbind,purrr::map(runif(f,min = 0.3,max=0.7),~rbinom(n = g,size=1,prob=.x)))
-  storage.mode(X) <- "numeric"
+  X <- do.call(cbind,purrr::map(runif(f,min = 0.3,max=0.7),~as.numeric(rbinom(n = g,size=1,prob=.x))))
+  
   eff <- c(-5,abs(rnorm(f,mean=0.7))*rbinom(f,size=1,prob=ps))
   fn <- c("Intercept",paste0("V",seq_len(f)))
   true_value <- tibble::tibble(feature_name=fn,true_Beta=eff)  
@@ -17,34 +17,41 @@ test_that("FGEM works on simulated data",{
   pxz1 <- dbinom(x = xg,size = sz,prob=0.5)
   pxz2 <- beta((xg+1),sz-xg+1)*choose(sz,xg)
   bf <- log(pxz1)-log(pxz2)
-  lambda <- c(2, 1, 5 * 10^(-(seq(1, 
-    9, length.out = 75))), 0)
-  new_lik <- function(par,X,BF){
-    xb <- X%*%par[-1]+par[1]
-    sum(fgem:::log_1p_exp(xb+BF) - fgem:::log_1p_exp(xb))
-  }
-  new_lik <- function(par,X,eBF){
-    
-  }
-  
+  ebf <- exp(bf)
 
-  new_grad <- function(par,X,eBF){
-      myenv <- new.env()
-      assign("Beta",par, envir = myenv)
-#      assign("Beta0",par[1] , envir = myenv)
-      assign("eBF", eBF, envir = myenv)
-      assign("X", X, envir = myenv)
-      rd <- numericDeriv(quote(sum(log(eBF + (1 - eBF)/t(1 + exp(X%*%Beta[-1]+Beta[1]))))),c("Beta"),myenv)
-      return(c(attr(rd,"gradient")))
-  }
+#   new_grad <- function(par,X,eBF){
+#       myenv <- new.env()
+#       assign("Beta",par, envir = myenv)
+# #      assign("Beta0",par[1] , envir = myenv)
+#       assign("eBF", eBF, envir = myenv)
+#       assign("X", X, envir = myenv)
+#       rd <- numericDeriv(quote(sum(log(eBF + (1 - eBF)/t(1 + exp(X%*%Beta[-1]+Beta[1]))))),c("Beta"),myenv)
+#       return(c(attr(rd,"gradient")))
+#   }
+  plan(multisession)
+  tr <- fgem:::fgem_bfgs(X,bf,log_BF=TRUE ,alpha=.5,lambda=lambda,hess=TRUE,grad=TRUE,verbose=FALSE)
+  ctr <- fgem::cv_fgem(X,ebf,log_BF=FALSE ,alpha=.5,hess=TRUE,grad=TRUE,verbose=FALSE,nlambda=4,v=4)
+  sctr <- fgem:::summarise_cv_lik(ctr)
+  check_lik <- purrr::pmap_dbl(tr,function(Beta,l1,l2,...){
+    B <- Beta$Beta
+    l <- -fgem::fgem_lik(B,X,bf,log_BF=TRUE)
+    l1p <- fgem:::l1_norm_penalty(B,l1 = l1)
+    l2p <- fgem:::l2_norm_penalty(B,l2 = l2)
+    return(-(l+l1p+l2p))
+  })
+  
+  tB0 <- tr$Beta[[1]]$Beta
+  check_grad <- purrr::pmap(tr,function(l1,l2,...){
+    g <- fgem::fgem_grad(tB0,X,bf,log_BF=TRUE,l1=l1,l2=0)
+    return(g)
+  })
+  gmat0 <- do.call(cbind,check_grad)
+  
+  rgrd <- map(fgem::fgem_grad(par = tr$Beta[[1]]$Beta,X,bf,l2=0,l1=tr$l1[1],log_BF=TRUE)[-1])
   
   
-
-
   
-  
-  tr <- fgem:::fgem_bfgs(X,bf,log_BF=TRUE ,alpha=.5,lambda=lambda,hess=TRUE,grad=TRUE,verbose=TRUE)
-  
+  mutate(tr,check_lik=check_lik) %>% filter(convergence==0,lik<max(lik)) %>% ggplot(aes(x=lik,y=check_lik))+geom_point()
   fgem:::fgem_lik(tr$Beta[[3]]$Beta,X,bf,0,0,log_BF=TRUE)
   new_lik(tr$Beta[[3]]$Beta,X,exp(bf))
   tg <- fgem:::fgem_grad(tr$Beta[[3]]$Beta,X,bf,0,0,log_BF=TRUE)

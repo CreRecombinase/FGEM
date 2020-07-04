@@ -1,7 +1,4 @@
 #include "fgem.h"
-#include <progress.hpp>
-#include "progress_bar.hpp"
-//[[Rcpp::depends(RcppProgress)]]
 //[[Rcpp::depends(RcppEigen)]]
 //[[Rcpp::plugins(unwindProtect)]]
 //[[Rcpp::depends(BH)]]
@@ -17,8 +14,9 @@ Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::
   using Mt = Eigen::MatrixXd;
   Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
   Eigen::Matrix <double,Eigen::Dynamic,1> grad_fx;
+  const size_t p=par.size();
   double fx=0;
-  if(l2<0 or l1<0){
+  if(l2<0.0 or l1<0.0){
     Rcpp::stop("penalties (l2/L2 and l1) must be non-negative");
   }
 
@@ -27,13 +25,32 @@ Eigen::ArrayXd fgem_grad_stan(const Eigen::Map<Eigen::ArrayXd> par,const Eigen::
   if(X.rows()!=BF.size()){
     Rcpp::stop("BF must be of length: NROW(x) ("+std::to_string(X.rows())+"), and not: "+std::to_string(BF.size()));
   }
-  if(l1!=0){
+  if(l1>0.0){
     if(!log_BF){
       fgem_lik_l1<Mt> f(X,BF,l2,l1);
       stan::math::gradient(f,param,fx,grad_fx);
     }else{
       log_fgem_lik_l1<Mt> f(X,BF,l2,l1);
       stan::math::gradient(f,param,fx,grad_fx);
+    }
+    for(int i=1; i<p; i++){
+      if(par[i]>0){
+        grad_fx[i]+=l1;
+      }
+      if(par[i]<0){
+        grad_fx[i]-=l1;
+      }
+      if(par[i]==0){
+        if((grad_fx[i]+l1) < 0){
+          grad_fx[i]+=l1;
+        }else{
+          if((grad_fx[i]-l1) > 0){
+          grad_fx[i]-=l1;
+          }else{
+            grad_fx[i]=0;
+          }
+        }
+      }
     }
   }else{
     if(!log_BF){
@@ -69,7 +86,7 @@ Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
 
 
   double fx=0;
-
+  const size_t p=par.size();
   if(l1!=0){
     if(!log_BF){
       fgem_lik_l1<Mt> f(X,BF,l2,l1);
@@ -77,6 +94,25 @@ Eigen::Matrix<double,Eigen::Dynamic,1> param(par);
     }else{
       log_fgem_lik_l1<Mt> f(X,BF,l2,l1);
       stan::math::gradient(f,param,fx,grad_fx);
+    }
+    for(int i=1; i<p; i++){
+      if(par[i]>0){
+        grad_fx[i]+=l1;
+      }
+      if(par[i]<0){
+        grad_fx[i]-=l1;
+      }
+      if(par[i]==0){
+        if((grad_fx[i]+l1) < 0){
+          grad_fx[i]+=l1;
+        }else{
+          if((grad_fx[i]-l1) > 0){
+            grad_fx[i]-=l1;
+          }else{
+            grad_fx[i]=0;
+          }
+        }
+      }
     }
   }else{
     if(!log_BF){

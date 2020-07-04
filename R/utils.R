@@ -1,24 +1,26 @@
-summ_beta <- function(fit_l, weights = rep(1 / length(fit_l), length(fit_l)), drop_0 = FALSE) {
+summ_beta <- function(fit_l,convergence=rep(0,length(fit_l)), drop_0 = FALSE) {
     if (drop_0) {
-        list(tibble::tibble(w = weights, Beta = fit_l) %>%
-             tidyr::unnest(Beta) %>%
-             dplyr::group_by(feature_name) %>%
-             dplyr::mutate(Beta = dplyr::if_else(rep(any(Beta == 0),
-                                                     length(Beta)), 0, Beta)) %>%
-
-             dplyr::summarise(
-                        Beta_sd = sd(Beta),
-                        Beta = mean(Beta)
-                    ))
+        list(tibble::tibble(converged = convergence, Beta = fit_l) %>% 
+                 filter(converged==0) %>% 
+                 tidyr::unnest(Beta) %>%
+                 dplyr::group_by(feature_name) %>%
+                 dplyr::mutate(Beta = dplyr::if_else(rep(any(Beta == 0),
+                                                         length(Beta)), 0, Beta)) %>%
+                 
+                 dplyr::summarise(
+                     Beta_sd = sd(Beta),
+                     Beta = mean(Beta)
+                 ))
     }else{
-        list(tibble::tibble(w = weights, Beta = fit_l) %>%
-             tidyr::unnest(Beta) %>%
-             dplyr::group_by(feature_name) %>%
-             dplyr::summarise(
-                        Beta_sd = sd(Beta),
-                        Beta = mean(Beta)
-                    ))
-
+        list(tibble::tibble(converged = convergence, Beta = fit_l) %>%
+                 filter(converged == 0) %>% 
+                 tidyr::unnest(Beta) %>%
+                 dplyr::group_by(feature_name) %>%
+                 dplyr::summarise(
+                     Beta_sd = sd(Beta),
+                     Beta = mean(Beta)
+                 ))
+        
     }
 }
 
@@ -26,17 +28,18 @@ summ_beta <- function(fit_l, weights = rep(1 / length(fit_l), length(fit_l)), dr
 summarise_cv_lik <- function(fit, summarise_Beta = TRUE) {
     mgrps <- dplyr::groups(fit)
     if (!summarise_Beta) {
-        fit %>%
-            dplyr::group_by(group_l1, group_l2, .add = TRUE) %>%
+        fit %>% dplyr::mutate(cv_lik=dplyr::if_else(convergence==0,cv_lik,NA_real_)) %>% 
+            dplyr::group_by(l1, l2, .add = TRUE) %>%
             dplyr::summarize(
                        cv_sum = sum(cv_lik),
+                       mean_time=mean(time),
                        l0_mean = mean(l0n),
                        l0_sd = sd(l0n),
                        ) %>%
             dplyr::group_by(!!!mgrps)
     }else{
         fit %>%
-            dplyr::group_by(group_l1, group_l2, .add = TRUE) %>%
+            dplyr::group_by(l1, l2, .add = TRUE) %>%
             dplyr::summarize(
                        Beta = summ_beta(Beta,
                                         drop_0 = FALSE),
@@ -109,6 +112,7 @@ fgem_grad <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...){
 #' @describeIn fgem_grad gradient for dense matrix
 #' @export
 fgem_grad.matrix <- function(par, X, BF, l2 = 0, l1=0, log_BF = FALSE, ...){
+    storage.mode(X) <- "numeric"
     -fgem_grad_stan(par = par, X = X, BF = BF, l2 = l2, l1 = l1, log_BF = log_BF)
 }
 
@@ -191,6 +195,7 @@ fgem_lik <- function(par,X,BF,l2 = 0,l1=0.0, log_BF = FALSE,...){
 #' @describeIn fgem_lik likelihood for dense data matrix
 #' @export
 fgem_lik.matrix <- function(par,X,BF,l2 = 0,l1=0.0, log_BF = FALSE,...){
+    storage.mode(X) <- "numeric"
     -fgem_lik_stan(par,X,BF,l2,TRUE,log_BF=log_BF)
 }
 
@@ -413,4 +418,20 @@ log1mexp <- function(x) {
 ##' @export
 log_pbernoulli <- function(lp,x){
     sum(x*lp+(1-x)*R_Log1_Exp(lp))
+}
+
+
+
+#' Sequence generation in log-space
+#'
+#' @param from starting point
+#' @param to maximal end value
+#' @param length.out desired length of the sequence
+#' @param base log-base (default is 10)
+#' 
+#' @return
+#' @export
+#'
+lseq <- function(from=1, to=100000, length.out=6,base=10) {
+  10^(seq(log(from,base = base), log(to,base=base), length.out = length.out))
 }
