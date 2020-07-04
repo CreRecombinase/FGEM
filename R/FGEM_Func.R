@@ -37,7 +37,7 @@ cv_fgem <- function(X,
                     v=10,
                     ...){
     fgls <- function(par, x, BF,log_BF = FALSE){
-        fgem_lik(par=par,X=x,BF=BF,l2=0.0,log_BF=log_BF)
+        fgem_lik(par=par,X=x,BF=BF,l2=0.0,l1=0.0,log_BF=log_BF)
     }
     if(is.null(lambda)){
       lambda.min.ratio <- ifelse(NROW(X)>NCOL(X),0.0001,0.01)
@@ -92,6 +92,34 @@ cv_fgem <- function(X,
 
 
 
+##' @title fit cross-validated FGEM model and then fit a relaxed model (no L1 penalty) on the best
+##'
+##'
+##' @param X Feature matrix
+##' @param BF vector of bayes factors
+##' @param alpha alpha (as in glmnet). Alpha  is the (scalar) proportion of
+##' `lambda` applied to l1 penalization, while `1-alpha` is applied to l2
+##' @param lambda vector of shrinkage parameters
+##' @return
+##' @export
+cv_relax_fgem <-function(X,
+                    BF,
+                    log_BF=FALSE,
+                    alpha = 0.95,
+                    nlambda=100,
+                    lambda=NULL,
+                    stratify_BF=TRUE,
+                    v=10,
+                    ...){
+    cvdf <- cv_fgem(X = X, BF = BF, log_BF = log_BF, alpha = alpha, nlambda = nlambda, lambda = lambda, stratify_BF = stratify_BF, v = v, ... = ...)
+    summ_df <- summarise_cv_lik(cvdf, summarise_Beta = TRUE)
+    sel_feats <- dplyr::filter(summ_df, cv_sum == max(cv_sum)) %>%
+            dplyr::slice(1) %>%
+            tidyr::unnest(data = Beta) %>%
+        filter(Beta != 0,feature_name!="Intercept") %>%
+        pull(feature_name)
+    return(cv_fgem(X = X[, sel_feats], BF = BF, log_BF = log_BF, alpha = 0, nlambda = nlambda, lambda = lambda, stratify_BF = stratify_BF, v = v, ... = ...))
+}
 
 coeff_mat <- function(Beta_l) {
         Beta <- simplify2array(purrr::map(Beta_l, "Beta"), higher = TRUE)
