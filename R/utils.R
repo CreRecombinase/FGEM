@@ -1,7 +1,7 @@
 summ_beta <- function(fit_l,convergence=rep(0,length(fit_l)), drop_0 = FALSE) {
     if (drop_0) {
         list(tibble::tibble(converged = convergence, Beta = fit_l) %>% 
-                 filter(converged==0) %>% 
+                 dplyr::filter(converged==0) %>% 
                  tidyr::unnest(Beta) %>%
                  dplyr::group_by(feature_name) %>%
                  dplyr::mutate(Beta = dplyr::if_else(rep(any(Beta == 0),
@@ -13,7 +13,7 @@ summ_beta <- function(fit_l,convergence=rep(0,length(fit_l)), drop_0 = FALSE) {
                  ))
     }else{
         list(tibble::tibble(converged = convergence, Beta = fit_l) %>%
-                 filter(converged == 0) %>% 
+                 dplyr::filter(converged == 0) %>% 
                  tidyr::unnest(Beta) %>%
                  dplyr::group_by(feature_name) %>%
                  dplyr::summarise(

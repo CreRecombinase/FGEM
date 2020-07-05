@@ -31,6 +31,7 @@ test_that("FGEM works on simulated data",{
   plan(multisession)
   tr <- fgem:::fgem_bfgs(X,bf,log_BF=TRUE ,alpha=.5,lambda=lambda,hess=TRUE,grad=TRUE,verbose=FALSE)
   ctr <- fgem::cv_fgem(X,ebf,log_BF=FALSE ,alpha=.5,hess=TRUE,grad=TRUE,verbose=FALSE,nlambda=4,v=4)
+  rlct <- cv_relax_fgem(X,ebf,log_BF=FALSE ,alpha=.5,hess=TRUE,grad=TRUE,verbose=FALSE,nlambda=4,v=4)
   sctr <- fgem:::summarise_cv_lik(ctr)
   check_lik <- purrr::pmap_dbl(tr,function(Beta,l1,l2,...){
     B <- Beta$Beta

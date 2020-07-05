@@ -115,9 +115,12 @@ cv_relax_fgem <-function(X,
     summ_df <- summarise_cv_lik(cvdf, summarise_Beta = TRUE)
     sel_feats <- dplyr::filter(summ_df, cv_sum == max(cv_sum)) %>%
             dplyr::slice(1) %>%
-            tidyr::unnest(data = Beta) %>%
-        filter(Beta != 0,feature_name!="Intercept") %>%
-        pull(feature_name)
+            tidyr::unnest(Beta) %>%
+        dplyr::filter(Beta != 0,feature_name!="Intercept") %>%
+        dplyr::pull(feature_name)
+    if(is.null(colnames(X))){
+      sel_feats <- as.integer(stringr::str_remove(sel_feats,"V"))
+    }
     return(cv_fgem(X = X[, sel_feats], BF = BF, log_BF = log_BF, alpha = 0, nlambda = nlambda, lambda = lambda, stratify_BF = stratify_BF, v = v, ... = ...))
 }
 
