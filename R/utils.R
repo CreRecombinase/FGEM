@@ -34,7 +34,8 @@ summarise_cv_lik <- function(fit, summarise_Beta = TRUE) {
                        cv_sum = sum(cv_lik),
                        mean_time=mean(time),
                        l0_mean = mean(l0n),
-                       l0_sd = sd(l0n),
+                       l1_mean = mean(l1n),
+                       l2_mean = mean(l2n)
                        ) %>%
             dplyr::group_by(!!!mgrps)
     }else{
@@ -44,8 +45,10 @@ summarise_cv_lik <- function(fit, summarise_Beta = TRUE) {
                        Beta = summ_beta(Beta,
                                         drop_0 = FALSE),
                        cv_sum = sum(cv_lik),
+                       mean_time=mean(time),
                        l0_mean = mean(l0n),
-                       l0_sd = sd(l0n)
+                       l1_mean = mean(l1n),
+                       l2_mean = mean(l2n)
                    ) %>%
             dplyr::group_by(!!!mgrps)
     }
@@ -318,20 +321,70 @@ empty_x <- function(x, rownames = names(x)) {
         matrix(0, nrow = nr, ncol = 0, dimnames = list(rownames, NULL))
 }
 
-predict_uniform_prior <- function(BF, Genes = names(BF)) {
-    predict_fgem(fgem_null_fit(BF), empty_x(BF, Genes))
+predict_uniform_prior <- function(BF, Genes = names(BF), log_BF = FALSE) {
+        predict_fgem(fgem_null_fit(BF, log_BF = log_BF), empty_x(BF, Genes), log = log_BF)
 }
 
-BF2posterior <- function(BF,Genes=names(BF), prior = predict_uniform_prior(BF,Genes)) {
-    return((prior * BF) / ((prior * BF) + (1 - prior)))
+##' @title convert BF to posterior estimates
+##'
+##'
+##' @param BF bayes factor (or log bayes factor
+##' @param Genes character vector for gene names
+##' @param prior prior (or log prior)
+##' @param log_BF whether to compute in log space (and return in log space)
+##' @return
+##' @export
+BF2posterior <- function(BF,Genes=names(BF), prior = predict_uniform_prior(BF,Genes),log_BF=FALSE) {
+    if(!log_BF)
+        return((prior * BF) / ((prior * BF) + (1 - prior)))
+    return(log_BF2_logpost(BF, stats::qlogis(prior, log.p = TRUE)))
 }
 
 
 log_BF2_logpost <- function(logBF, xb) {
-        apply(xb - logBF, 2, log_1p_exp)
+  -log1pexp(xb + logBF) + xb + logBF
+  ## #    apply(xb - logBF, 2, log_1p_exp)
 }
 
 
+
+
+##' @title Compute  f(a) = log(1 - exp(-a))  stably
+##' @param a numeric vector of positive values
+##' @param cutoff  log(2) is optimal, see  Maechler (201x) .....
+##' @return f(a) == log(1 - exp(-a)) == log1p(-exp(-a)) == log(-expm1(-a))
+##' @author Martin Maechler, May 2002 .. Aug. 2011
+log1mexp <- function(a, cutoff = log(2)) ## << log(2) is optimal >>
+{
+    if(has.na <- any(ina <- is.na(a))) {
+	y <- a
+	a <- a[ok <- !ina]
+    }
+    if(any(a < 0))## a == 0  -->  -Inf	(in both cases)
+	warning("'a' >= 0 needed")
+    tst <- a <= cutoff
+    r <- a
+    r[ tst] <- log(-expm1(-a[ tst]))
+    r[!tst] <- log1p(-exp(-a[!tst]))
+    if(has.na) { y[ok] <- r ; y } else r
+}
+
+##' @title Compute  f(x) = log(1 + exp(x))  stably and quickly
+log1pexp <- function(x, c0 = -37, c1 = 18, c2 = 33.3)
+{
+    if(has.na <- any(ina <- is.na(x))) {
+	y <- x
+	x <- x[ok <- !ina]
+    }
+    r <- exp(x)
+    if(any(i <- c0 < x & (i1 <- x <= c1)))
+	r[i] <- log1p(r[i])
+    if(any(i <- !i1 & (i2 <- x <= c2)))
+	r[i] <- x[i] + 1/r[i] # 1/exp(x) = exp(-x)
+    if(any(i3 <- !i2))
+	r[i3] <- x[i3]
+    if(has.na) { y[ok] <- r ; y } else r
+}
 
 
 ##' @title Convert a table-style sparse matrix representation to a sparse matrix

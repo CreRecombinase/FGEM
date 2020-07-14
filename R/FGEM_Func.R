@@ -491,7 +491,7 @@ fgem_null_lik <- function(BF,log_BF=FALSE) {
 
 fgem_null_fit <- function(BF, log_BF = FALSE, ...) {
     pta <- proc.time()
-    lbf <- stats::optimize(fgem_lik_stan,
+    lbf <- stats::optimize(fgem_lik,
                     lower = -10,
                     upper = 100, X = matrix(0, nrow = length(BF), ncol = 0), BF = BF,
                     log_BF=log_BF,
